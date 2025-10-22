@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<HelpInfo xmlns="http://schemas.microsoft.com/powershell/help/2010/05">
+   <HelpContentURI>http://www.hpe.com/info/powershell-updatehelp</HelpContentURI>
+   <SupportedUICultures>
+    <UICulture>
+      <UICultureName>en-US</UICultureName>
+      <UICultureVersion>2.2.0.0</UICultureVersion>
+    </UICulture>
+    <UICulture>
+      <UICultureName>zh-CN</UICultureName>
+      <UICultureVersion>2.2.0.0</UICultureVersion>
+    </UICulture>
+    <UICulture>
+      <UICultureName>ja-JP</UICultureName>
+      <UICultureVersion>2.2.0.0</UICultureVersion>
+    </UICulture>
+   </SupportedUICultures>
+</HelpInfo>

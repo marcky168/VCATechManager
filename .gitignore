@@ -39,5 +39,4 @@ desktop.ini
 # Ignore NuGet restore files
 *.nuget.props
 
-# Force include important files if needed (optional)
 !.gitignore
