@@ -1,0 +1,43 @@
+# Ignore build/output directories
+bin/
+obj/
+debug/
+staging/
+Packages/
+
+# Ignore logs and reports
+logs/
+reports/
+
+# Ignore credential and private files
+Private/*.xml
+Private/*.cred
+
+# Ignore temp and backup files
+*.tmp
+*.bak
+*~
+
+# Ignore OS-specific files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Ignore IDE/editor files
+.vs/
+.vscode/
+*.suo
+*.user
+*.csproj.user
+
+# Ignore executables and packages
+*.exe
+*.msi
+*.dll
+*.nupkg
+
+# Ignore NuGet restore files
+*.nuget.props
+
+# Force include important files if needed (optional)
+!.gitignore
