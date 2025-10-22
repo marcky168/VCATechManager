@@ -1,0 +1,170 @@
+AU,Name,Cluster
+101,h0101-vm1.vcaantech.com,H0101 vSAN Cluster
+101,h0101-vm2.vcaantech.com,H0101 vSAN Cluster
+101,h0101-vm3.vcaantech.com,H0101 vSAN Cluster
+101,h0101-vm4.vcaantech.com,H0101 vSAN Cluster
+129,h0129-vm01.vcaantech.com,H0129 MSA Cluster
+129,h0129-vm02.vcaantech.com,H0129 MSA Cluster
+154,h0154-vm1.vcaantech.com,H0154 vSAN Cluster
+154,h0154-vm2.vcaantech.com,H0154 vSAN Cluster
+154,h0154-vm3.vcaantech.com,H0154 vSAN Cluster
+215,h0215-vm.vcaantech.com,H0215-cluster
+366,h0366-vm01.vcaantech.com,H0366 MSA Cluster
+366,h0366-vm02.vcaantech.com,H0366 MSA Cluster
+393,h0393-vm1.vcaantech.com,H0393 vSAN Cluster
+393,h0393-vm2.vcaantech.com,H0393 vSAN Cluster
+393,h0393-vm3.vcaantech.com,H0393 vSAN Cluster
+422,h0422-vm.vcaantech.com,H0422-cluster
+473,h0473-vm.vcaantech.com,H0473
+506,h0506-vm01.vcaantech.com,H0506 MSA Cluster
+506,h0506-vm02.vcaantech.com,H0506 MSA Cluster
+506,h0506-vm03.vcaantech.com,H0506 MSA Cluster
+508,h0508-vm01.vcaantech.com,H0508 MSA Cluster
+508,h0508-vm02.vcaantech.com,H0508 MSA Cluster
+515,h0515-vm.vcaantech.com,H0515-cluster
+540,h0540-vm.vcaantech.com,H0540-cluster
+585,h0585-vm.vcaantech.com,H0585-cluster
+595,h0595-vm01.vcaantech.com,H0595 MSA Cluster
+595,h0595-vm02.vcaantech.com,H0595 MSA Cluster
+634,h0634-vm01.vcaantech.com,H0634 MSA Cluster
+634,h0634-vm02.vcaantech.com,H0634 MSA Cluster
+657,h0657-vm.vcaantech.com,H0657-cluster
+688,h0688-vm1.vcaantech.com,H0688 vSAN Cluster
+688,h0688-vm2.vcaantech.com,H0688 vSAN Cluster
+688,h0688-vm3.vcaantech.com,H0688 vSAN Cluster
+729,h0729-vm01.vcaantech.com,H0729 vSAN Cluster
+729,h0729-vm02.vcaantech.com,H0729 vSAN Cluster
+755,h0755-vm.vcaantech.com,H0755-cluster
+759,h0759-vm01.vcaantech.com,H0759 vSAN Cluster
+759,h0759-vm02.vcaantech.com,H0759 vSAN Cluster
+759,h0759-vm03.vcaantech.com,H0759 vSAN Cluster
+785,h0785-vm01.vcaantech.com,H0785 MSA Cluster
+785,h0785-vm02.vcaantech.com,H0785 MSA Cluster
+785,h0785-vm03.vcaantech.com,H0785 MSA Cluster
+801,h0801-vm01.vcaantech.com,H0801 vSAN Cluster
+801,h0801-vm02.vcaantech.com,H0801 vSAN Cluster
+801,h0801-vm03.vcaantech.com,H0801 vSAN Cluster
+805,h0805-vm01.vcaantech.com,H0805 MSA Cluster
+805,h0805-vm02.vcaantech.com,H0805 MSA Cluster
+805,h0805-vm,Stand-alone Server
+848,h0848-vm01.vcaantech.com,H0848 vSAN Cluster
+848,h0848-vm02.vcaantech.com,H0848 vSAN Cluster
+848,h0848-vm03.vcaantech.com,H0848 vSAN Cluster
+871,h0871-vm01.vcaantech.com,H0871 vSAN Cluster
+871,h0871-vm02.vcaantech.com,H0871 vSAN Cluster
+871,h0871-vm03.vcaantech.com,H0871 vSAN Cluster
+878,h0878-vm01.vcaantech.com,H0878 vSAN Cluster
+878,h0878-vm02.vcaantech.com,H0878 vSAN Cluster
+878,h0878-vm03.vcaantech.com,H0878 vSAN Cluster
+880,h0880-vm01.vcaantech.com,H0880 MSA Cluster
+880,h0880-vm02.vcaantech.com,H0880 MSA Cluster
+893,h0893-vm01.vcaantech.com,H0893 vSAN Cluster
+893,h0893-vm02.vcaantech.com,H0893 vSAN Cluster
+894,h0894-vm01.vcaantech.com,H0894 vSAN Cluster
+894,h0894-vm02.vcaantech.com,H0894 vSAN Cluster
+896,h0896-vm01.vcaantech.com,H0896 MSA Cluster
+896,h0896-vm02.vcaantech.com,H0896 MSA Cluster
+899,h0899-vm1.vcaantech.com,H0899 vSAN Cluster
+899,h0899-vm2.vcaantech.com,H0899 vSAN Cluster
+899,h0899-vm3.vcaantech.com,H0899 vSAN Cluster
+900,h0900-vm01.vcaantech.com,h0900 MSA Cluster
+900,h0900-vm02.vcaantech.com,h0900 MSA Cluster
+935,h0935-vm01.vcaantech.com,h0935 MSA Cluster
+935,h0935-vm02.vcaantech.com,h0935 MSA Cluster
+935,h0935-vm03.vcaantech.com,h0935 MSA Cluster
+952,h0952-vm.vcaantech.com,H0952-cluster
+966,h0966-vm01.vcaantech.com,H0966 vSAN Cluster
+966,h0966-vm02.vcaantech.com,H0966 vSAN Cluster
+966,h0966-vm03.vcaantech.com,H0966 vSAN Cluster
+975,h0975-vm01.vcaantech.com,h0975 vSAN Cluster
+975,h0975-vm02.vcaantech.com,h0975 vSAN Cluster
+975,h0975-vm03.vcaantech.com,h0975 vSAN Cluster
+978,h0978-vm.vcaantech.com,H0978-cluster
+988,h0988-vm01.vcaantech.com,h0988 MSA Cluster
+988,h0988-vm02.vcaantech.com,h0988 MSA Cluster
+1000,h1000-vm01.vcaantech.com,h1000 vSAN Cluster
+1000,h1000-vm02.vcaantech.com,h1000 vSAN Cluster
+1000,h1000-vm03.vcaantech.com,h1000 vSAN Cluster
+1021,h1021-vm01.vcaantech.com,H1021 vSAN Cluster
+1021,h1021-vm02.vcaantech.com,H1021 vSAN Cluster
+1021,h1021-vm03.vcaantech.com,H1021 vSAN Cluster
+1031,h1031-vm01.vcaantech.com,h1031 MSA Cluster
+1031,h1031-vm02.vcaantech.com,h1031 MSA Cluster
+1035,h1035-vm01.vcaantech.com,h1035 MSA Cluster
+1035,h1035-vm02.vcaantech.com,h1035 MSA Cluster
+1061,h1061-vm01.vcaantech.com,h1061 vSAN Cluster
+1061,h1061-vm02.vcaantech.com,h1061 vSAN Cluster
+1061,h1061-vm03.vcaantech.com,h1061 vSAN Cluster
+1063,h1063-vm01.vcaantech.com,h1063 vSAN Cluster
+1063,h1063-vm02.vcaantech.com,h1063 vSAN Cluster
+1063,h1063-vm03.vcaantech.com,h1063 vSAN Cluster
+1084,h1084-vm01.vcaantech.com,h1084 vSAN Cluster
+1084,h1084-vm02.vcaantech.com,h1084 vSAN Cluster
+1084,h1084-vm03.vcaantech.com,h1084 vSAN Cluster
+1102,h1102-vm01.vcaantech.com,h1102 vSAN Cluster
+1102,h1102-vm02.vcaantech.com,h1102 vSAN Cluster
+1111,h1111-vm01.vcaantech.com,h1111 vSAN Cluster
+1111,h1111-vm02.vcaantech.com,h1111 vSAN Cluster
+1129,h1129-vm01.vcaantech.com,h1129 vSAN Cluster
+1129,h1129-vm02.vcaantech.com,h1129 vSAN Cluster
+1129,h1129-vm03.vcaantech.com,h1129 vSAN Cluster
+1162,h1162-vm01.vcaantech.com,h1162 vSAN Cluster
+1162,h1162-vm02.vcaantech.com,h1162 vSAN Cluster
+1162,h1162-vm03.vcaantech.com,h1162 vSAN Cluster
+1183,h1183-vm01.vcaantech.com,H1183 vSAN Cluster
+1183,h1183-vm02.vcaantech.com,H1183 vSAN Cluster
+1183,h1183-vm03.vcaantech.com,H1183 vSAN Cluster
+1198,h1198-vm01.vcaantech.com,H1198 vSAN Cluster
+1198,h1198-vm02.vcaantech.com,H1198 vSAN Cluster
+1198,h1198-vm03.vcaantech.com,H1198 vSAN Cluster
+1214,h1214-vm01.vcaantech.com,H1214 vSAN Cluster
+1214,h1214-vm02.vcaantech.com,H1214 vSAN Cluster
+1214,h1214-vm03.vcaantech.com,H1214 vSAN Cluster
+4016,h4016-vm01.vcaantech.com,H4016 vSAN Cluster
+4016,h4016-vm02.vcaantech.com,H4016 vSAN Cluster
+4016,h4016-vm03.vcaantech.com,H4016 vSAN Cluster
+4018,h4018-vm01.vcaantech.com,H4018 vSAN Cluster
+4018,h4018-vm02.vcaantech.com,H4018 vSAN Cluster
+4018,h4018-vm03.vcaantech.com,H4018 vSAN Cluster
+4027,h4027-vm01.vcaantech.com,H4027 vSAN Cluster
+4027,h4027-vm02.vcaantech.com,H4027 vSAN Cluster
+4027,h4027-vm03.vcaantech.com,H4027 vSAN Cluster
+4036,h4036-vm01.vcaantech.com,H4036 vSAN Cluster
+4036,h4036-vm02.vcaantech.com,H4036 vSAN Cluster
+4036,h4036-vm03.vcaantech.com,H4036 vSAN Cluster
+4037,h4037-vm01.vcaantech.com,H4037 vSAN Cluster
+4037,h4037-vm02.vcaantech.com,H4037 vSAN Cluster
+4037,h4037-vm03.vcaantech.com,H4037 vSAN Cluster
+4044,h4044-vm01.vcaantech.com,H4044 vSAN Cluster
+4044,h4044-vm02.vcaantech.com,H4044 vSAN Cluster
+4044,h4044-vm03.vcaantech.com,H4044 vSAN Cluster
+4046,h4046-vm01.vcaantech.com,H4046 vSAN Cluster
+4046,h4046-vm02.vcaantech.com,H4046 vSAN Cluster
+4046,h4046-vm03.vcaantech.com,H4046 vSAN Cluster
+4053,h4053-vm01.vcaantech.com,H4053 vSAN Cluster
+4053,h4053-vm02.vcaantech.com,H4053 vSAN Cluster
+4053,h4053-vm03.vcaantech.com,H4053 vSAN Cluster
+80100,h80100-vm01.vcaantech.com,h80100 Cluster
+80100,h80100-vm02.vcaantech.com,h80100 Cluster
+80108,h80108-vm01.vcaantech.com,H80108 vSAN Cluster
+80108,h80108-vm02.vcaantech.com,H80108 vSAN Cluster
+80108,h80108-vm03.vcaantech.com,H80108 vSAN Cluster
+80108,h80108-vm04.vcaantech.com,H80108 vSAN Cluster
+80108,h80108-vm05.vcaantech.com,H80108 vSAN Cluster
+80120,h80120-vm01.vcaantech.com,H80120 vSAN Cluster
+80120,h80120-vm02.vcaantech.com,H80120 vSAN Cluster
+80120,h80120-vm03.vcaantech.com,H80120 vSAN Cluster
+80124,h80124-vm01.vcaantech.com,H80124 vSAN Cluster
+80124,h80124-vm02.vcaantech.com,H80124 vSAN Cluster
+80124,h80124-vm03.vcaantech.com,H80124 vSAN Cluster
+80304,h80304-vm01.vcaantech.com,h80304 vSAN Cluster
+80304,h80304-vm02.vcaantech.com,h80304 vSAN Cluster
+80304,h80304-vm03.vcaantech.com,h80304 vSAN Cluster
+80319,h80319-vm01.vcaantech.com,h80319 vSAN Cluster
+80319,h80319-vm02.vcaantech.com,h80319 vSAN Cluster
+80319,h80319-vm03.vcaantech.com,h80319 vSAN Cluster
+80320,h80320-vm01.vcaantech.com,h80320 cluster
+80320,h80320-vm02.vcaantech.com,h80320 cluster
+80512,h80512-vm01.vcaantech.com,h80512 cluster
+80512,h80512-vm02.vcaantech.com,h80512 cluster
+80512,h80512-vm03.vcaantech.com,h80512 cluster

@@ -1,0 +1,32 @@
+﻿HPE End User License Agreement – Enterprise Version
+
+This end user license agreement (the "Agreement") governs the use of accompanying software, 
+unless it is subject to a separate agreement between you and Hewlett Packard Enterprise Company 
+and its subsidiaries (“HPE”). By downloading, copying, or using the software you agree to this Agreement. 
+HPE provides translations of this Agreement in certain languages including English, 
+which may be found at: http://www.hpe.com/software/SWLicensing
+
+---------------------------------------------------------------------------------------------------------
+
+Newtonsoft JSON.Net 
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION. 
+which may be found at: https://github.com/JamesNK/Newtonsoft.Json/blob/master/LICENSE.md
+
+---------------------------------------------------------------------------------------------------------
+
+AutoMapper 
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION. 
+which may be found at: https://github.com/AutoMapper/AutoMapper/blob/master/LICENSE.txt
+
+---------------------------------------------------------------------------------------------------------
+
+Log4Net
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION. 
+which may be found at: https://github.com/apache/logging-log4net/blob/master/LICENSE
+
+---------------------------------------------------------------------------------------------------------
+
+© Copyright 2018 Hewlett Packard Enterprise Development LP

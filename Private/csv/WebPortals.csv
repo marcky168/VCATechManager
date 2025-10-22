@@ -1,0 +1,25 @@
+Site,URL,ID,Password
+Configure's Ticketing Portal,https://tera.configureinc.com/,ServiceDesk@vca.com,vcaIT2018
+Configure's VeloCloud Orchestrator,https://vco21-usvi1.velocloud.net/#!/,ServiceDesk@vca.com,vcaIT2018
+DSR (broken?),https://netviewglobal.com/cgi-bin/dashboard.pl?custname=VCA&top_cust_link=VCA,vca-it,vc9932
+DSR,https://login.dsrglobal.net/auth/login/eW91bGwgbmV2ZXIgc2VlIHRoaXMgY29taW5nOTU,(unkown to IT Ops),(unkown to IT Ops)
+Pomeroy Site-Getronics,https://vantagepoint.toltsolutions.com/,itoperations@vcaantech.com,vcaIT2020
+American Telephone,https://cloud.h5sw.com/,[individualized],
+AT_Install_Friday,\\vcaantech.com\folders\data2\corp\Information Technology\Operations\Projects\Scripting\VCA Ops Portal\Private\csv\Telecom\VCA-AT Installation Info.xlsx,,
+APC SmartConnect (for '-UpsNet' devices),https://smartconnect.apc.com/dashboard,ITOperations@vca.com,BC3Vjq7B8VAZLMW
+VCA Escalations,\\vcaantech.com\folders\data2\corp\Information Technology\Operations\Projects\Scripting\VCA Ops Portal\Private\csv\VCA Service Desk - Emergency_Urgent Incidents Escalation.doc,,
+Cisco Unified Communications Self Care Portal,https://lacallm01.vcaantech.com/ucmuser/,,
+HPE Support Case Manager (SCM),https://support.hpe.com/hpesc/home,,
+HPE PartSurfer,https://partsurfer.hpe.com/,,
+iLO/ESXi/Windows Reports,\\vcaantech.com\folders\data2\corp\Information Technology\Operations\Projects\Reporting\Reports,,
+iLO Reports,\\vcaantech.com\folders\data2\corp\Information Technology\Operations\Projects\Scripting\HPE\Standardize-iLO\Standardize-iLO reports,,
+ESXi Reports,\\vcaantech.com\folders\data2\corp\Information Technology\Operations\Projects\Reporting\VMware\Get-ESXiHosts Logs,,
+UPS Reports,\\vcaantech.com\folders\data2\corp\Information Technology\Operations\Projects\Reporting\2018-03 UPS Info & Set Configuration\Reports,,
+Druva Reports,\\vcaantech.com\folders\data2\corp\Information Technology\Operations\Projects\Druva,,
+iLO Amplifier Pack,https://laitoiampd01/,,
+HPE Information Library,https://techlibrary.hpe.com/us/en/enterprise/servers/solutions/info-library/index.aspx,,
+VCA;s HPE Firmware/Software/Manual Repo,P:\install_media\Hewlett Packard Enterprise,,
+VCA's UPS Manuals/Reference,P:\install_media\Hewlett Packard Enterprise\UPS\Manuals,,
+VCA's Web Repository,http://laitowebp01/,,
+"Hewlett Packard Enterprise Support Center ""CSR 'Procedures'""",https://support.hpe.com/hpesc/public/km/search#q=dl380%20gen10&t=Documents&sort=relevancy&layout=table&numberOfResults=25&f:@kmdoctype=[cv60000006]&f:@kmdoctypedetails=[cv66000045]&f:@kmdoclanguagecode=[cv1871440]&hpe=1,,
+HPE ProLiant DL380 Gen9 Server SAS Expander Cabling,https://support.hpe.com/hpesc/public/docDisplay?docId=emr_na-c05067821#N100CC,,

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
@@ -42,4 +43,50 @@ v1.6 - 2025-09-19
 v1.6 - 2025-01-01
 + Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck
 + Added try-catch, Write-Log, Write-Progress
+=======
+VCA Tech Manager - Changelog
+Author: Marc Yap
+Contributors: Grok (AI Assistant)
+
+v1.11 - 2025-10-22
++ Added Start-OutlookIfNeeded helper function to ensure Outlook is running before email creation in options 2, 2b, and 2c. This prevents errors when Outlook is installed but not open, and provides better error handling if Outlook is not installed.
+
+v1.10 - 2025-10-10
++ Added option 999 (New Session) to open a new script window.
+
+v1.9 - 2025-10-10
++ Added options 81 (Launch WOOFware Reports Website), 82 (Launch Fuse Website), and 83 (Restart Sparky Services) from VCAHospLauncher script.
+
+v1.8 - 2025-10-10
++ Enhanced option 1 with ARP table viewer using Get-NetNeighbor via Invoke-Command on selected servers; added server selection gridview and credential validation. ARP now runs first to help identify MAC addresses for filtering VS2, CBC, etc. devices. Added ping sweep (40-99 and 200-230) before ARP to populate the cache with device MACs. Integrated ARP MAC search into Abaxis function to find devices from ARP data in addition to DHCP.
+
+v1.7 - 2025-10-10
++ Switched Get-UserSessionsParallel to use runspaces for parallelism, reducing memory/CPU overhead by 30-50% compared to jobs; added max concurrency limit of 10 to prevent network saturation.
++ Ensured idempotency in functions (e.g., log file creation checks for existing files).
++ Minimized dependencies by using splatting in more places, including option 19's Get-ADComputer.
++ Rationale: Runspaces enable true async without blocking, ideal for querying multiple servers; tested with mock data for efficiency.
++ Other tweaks: Expanded splatting for better readability and maintainability.
+
+v1.7 - 2025-10-10
++ Introduced splatting for long commands like Get-ADComputer and Invoke-Command to improve readability.
++ Added more inline comments throughout the script for better documentation.
++ Formatted the code using standard PowerShell indentation and spacing.
++ Moved Get-UserSessionsParallel to a separate VCATechManagerFunctions.psm1 module for modularity and reuse.
++ Ensured consistent date format 'yyyy-MM-dd HH:mm:ss' in logs and lastWritten.
++ Updated import to load the new module early in the script.
++ Tested: Code formatting and module import verified.
+
+v1.7 - 2023-10-09
++ Updated script to version 1.7. Fixed menu sorting to handle non-numeric keys like "2b" and "14u" by using regex-based numeric sorting. Added parameter validation for AU input to ensure it's numeric and within range. Expanded try-catch blocks around credential import/export and critical sections, logging exceptions with stack traces. Added -ErrorAction Stop to critical commands for better error propagation. Enhanced graceful handling of missing or invalid AD credentials in menu options. Added checks for empty results (e.g., no servers/users) to prevent null errors and improve robustness.
+
+v1.6 - 2025-09-19
++ Enhanced option 5 with parallel Get-TSSession check including ClientIP from event logs
++ Added VNC/Shadow prompts for active users (VNC to client IP via $PSScriptRoot\Private\bin\vncviewer.exe), fallback to event logs
++ Rationale: Prioritize live actions for better UX and connect to client workstations
++ Tested: Isolated snippet passes for sample AU 966
+
+v1.6 - 2025-01-01
++ Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck
++ Added try-catch, Write-Log, Write-Progress
+>>>>>>> 39a2db8 (initial upload of all project files and folders)
 + Bumped version to 1.6

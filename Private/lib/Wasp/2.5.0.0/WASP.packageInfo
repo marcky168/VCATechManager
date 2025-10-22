@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:d="http://schemas.microsoft.com/ado/2007/08/dataservices" xmlns:m="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata">
+  <id>
+  </id>
+  <title type="text">Module Updates</title>
+  <updated>2014-05-15T21:50:10.4175710Z</updated>
+  <entry>
+    <id>
+    </id>
+    <title type="text">
+    </title>
+    <summary type="text">A Windows Automation Script module for Powershell</summary>
+    <author>
+      <name>Joel Bennett</name>
+    </author>
+    <content type="application/zip" src="" />
+    <m:properties>
+      <d:Version>2.5.0.0</d:Version>
+      <d:Dependencies>Reflection:4.5</d:Dependencies>
+      <!-- These are RECOMMENDED: -->
+      <d:Copyright>Copyright (c) 2008-2014, Joel Bennett, released under the Ms-PL</d:Copyright>
+      <d:Tags>
+      </d:Tags>
+    </m:properties>
+  </entry>
+</feed>

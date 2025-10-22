@@ -1,0 +1,548 @@
+VCA Ops Portal - Change log
+Author: Harold.Kammermeyer@vca.com
+Contributors: Brian Boner, Don Kenney, Travis Rust
+
+v.210129 - DK
++ Added Get Application log last 100 entries (#70a)
++ Added Get System log last 100 entries (#70s)
++ Added Delete stale data (Engineering Recommended: Teams cache,.dmp,VST files,W3 Logs and windows\temp\*.*) (#71e)
+* Fixed output for 64bit data values (#11h/11ht)
+* Added header to UI for Server Reboot (up)
+* Corrected the PATH throughout the tool/ Additional module .ps1 files.  Replaced "S:\" with "\\vcaantech.com\folders\data2\". 
+
+v.210106 - BB
+* Corrected the PATH throughout the tool.  Replaced "\data\" with "\data2". (#robo,#1,#1l,#14t,#22,#e,<version check>)
++ Added instructions for PingInfoView (#13)
++ Added instructions for Angry IP Scanner (#18)
+* Minor tweas to text (#5)
+
+v.201214
++ Hospital Master updater is now using PnP.PowerShell module to support MFA. (#14u)
+  * MFA auth results may vary. Clear Internet Explorer cache if necessary.
+* Action #1,#2 now default to Y for confirmation. (#1,#2)
+
+v.201203
+HK
++ Added launch NS C: smb share. (#smb)
++ Added launch shortcut for cornerstone. (#19cs)
++ Added clear printer spooler. (#50)
++ Added query installed printers/launch printer web management. (#51) 
+* ESXCLI report now prompts for confirmation. (#1,#2)
+* Server 2008 fileservers now excluded from quick launch. (#19fs)
+* Stop AppReadiness now runs quicker and only stops the service if not in stopped state. (#42)
+- Removed *.*.*.1 IP (gateway) address from ping status. (#13)
+DK
++ Added 'ping' to check key hosts from a selected VM
++ Added 'up' to get the last reboot time from selected guest VM's
+* Modified "heavy hitters" to improve retreival time (#11h)
+* Modified "heavy hitters totals" to improve retreival time (#11ht)
+
+v.201119 - BB
++ Added/Preparing a menu for IT Training (may need more improvements)
+* Updated escalation number list with more departments (#98)
++ Added escalation numbers to all menus (#98)
++ Added Updated ""VCA Service Desk – Emergency/Urgent Incidents Escalation" launch link to https. (#98L)
+* For Turner Tech, Updated all menus to include the RDP Shadowing option (#77s)
+* For Turner Tech, Updated main menu to include the RDP Shadowing option (#77L)
+
+v.201014
++ Site selection now displays when NS is on 10.225.*.* (Mesa Datacenter) subnet.
++ Added datastore free space percentage to esxi host query. (#28)
++ Added Session Host Query to #s menu; action added and noted in previous release.
+* Fixed an issue where disk query would error out. (#27d)
+* User log out will now ignore non-user selections. (#77L)
+* Shadow session is now using the /control parameter. (#77s)
+
+v.201001
++ Added RDS Session Host query. (#11s)
++ Site selection now displays when NS is on 10.242.*.* (VMWare Cloud) subnet.
++ Added disk query via iLO for an easier disk read format. (#27d)
+* Changed site api address resolve method (may improve resolution speed). (#37)
+* Updated site pictures web with working link. (#22w)
+* Added message that Hospital Master is reloading. (#14u)
+
+v.200925
++ User profile purge now available for single server sites. (#43p)
+* #43v Renamed to #43p.
+* Vhds purge now includes additional corporate accounts. (#43p)
++ Added used and provisioned vm space to esxi query. (#28)
++ Added *.*.*.1 IP address as potential gateway for single server sites. (#13)
++ Added command preview for find-hpeilo. (#17)
++ Added launch shortcuts for all main vms:
+  #19n now also launches -nslb for cluster sites.
+  #19d -db
+  #19f -fusion
+  #19fs -fs
+  #19s -smpacs
+  #19u -util
+* Hospital Master Update now reloads Hospital Master even if a new version wasn't downloaded. (#14u)
+
+v.200918
++ Added vhd purge for unknown SIDs, disabled accounts, old tech profiles. (#43v)
++ Query ESXi Host now includes host and vm status. (#28)
+* ESXi network query has now been moved from #28 into new action. (#28n)
+* Datastore reading is now refreshed prior to returning results. (#28)
++ Added UTC time to local time query. (#11time)
++ Added terminal session shadowing. (#77s)
+* RDS Configuration query now only checks -fs* for cluster sites as there's only one setting for all NSs. (#11r)
+* Moved additional hospital info from #14 to #16.
+* PingPlotter now points to -ns instead of -gw. (#13p)
+
+v.200831 - HK, DK
++ TS Query now displays no orphan disks found message. (#77)
++ Application Installation Query is now server selectable. (#38)
++ Randomly select vca site from server selection prompt. (#r)
++ Total heavy memory use applications (#11ht) -DK
+* Total memory sum by Computer to each application (#11h) -DK
+* Adjusted VCA.Sparky.Shell handle count from 600 to 699. (#30wwk)
+* Fixed where quser was reporting -1 instead of 0 on empty servers. (#7)
+* Excluded any "CNF" user accounts that showed in headcount list. (#8)
+* Headcount results will now display as '0' instead of '1' if no results were found. (#8)
+- Removed vmdecom/incom static hostnames from pinginfoview. (#13)
+# Internal changes:
++ Function: Select-VCASite
+    -Provides Out-GridView populated with ping tested AD Computer Objects for Site.
+    -Example: Select-VCASite -AU 342 -Title 'title' -OutputMode 'Multiple'
+    -Example: Used in Action #38
+
+v.200828 - BB
+* Added quser count to the display (version2). (#7)
+- Removed the feature because the answer is in the title bar (#l)
+
+v.200825 - BB
+* Added quser count to the display. (#7)
++ Added a command to determine where the session was launched from. (#l)
+* Corrected Secret menu. (#s)
+
+v.200820
++ WW API Consistency check now checks for new Hospital Master prior to consistency check. (#37c)
+* Consolidated and corrected WW API Consistency check to one action. (#30c)
++ Added headers to 11h and 11m ouput. (#11h/#11m)
++ Added ability to retrieve NS's local time. (#11time)
++ Added ServiceNow Launch filtered for operations group. (#35o)
++ Added Installed Application Query. (#38)
+* Fixed bug where Terminal services query was returning errors. (#77)
+* Moved potential orphan UPD/vhdx results to the top of the list. (#77)
+* Adjusted timewindow for pingplotter. (may be improved on later date). (#13p)
+
+v.200817
++ Added Ops Portal version number to PingInfoView title bar for screenshot record purposes. (#13)
++ Added network share links and amended name for 'launch web portals'. (#26)
++ Added RDS Session Configuration query. (#11r)
++ Added net services quick launch. (#19n)
++ Added WOOFware API consitency check. (#37c/#37c2)
++ PingPlotter Launcher. (Local copy of ops portal is needed to use effectively) (#13p)
+* Improved Terminal Services query speed. (#77)
+* Suppressed VNC encryption warning; mouse cursor now moves to top of screen when launching VNC. (#77)
+* Fixed issue where winscp no longer loaded directly to the vm host volume path. (#6)
+* Process memory report now works across multiple machines. (#11p)
++ EXPERIMENTAL: Kill all woofware sessions that are stuck on splashscreen. Needs more testing. (#30wwk)
+
+v.200807
++ Added CPU count to OS resource report. (#11)
++ Added custom option for terminal server messaging. (#7m)
+* Adjusted memory report to a more standard format. (#11)
+* Limited notifications key deletion to cluster sites. (#41n)
+* Updated Hospital Master.
+
+v.200723 - BB
+* Updated WinSCP to 5.17.6 (#6)	P:\install_media\Martin Prikryl\WinSCP\5.17.6 Portable
+* Updated Nirsoft's PingInfoView to 2.02 (#13)	P:\install_media\Nirsoft\PingInfoView\2.02
+* Updated Simon Tatham's putty.exe to 0.74 (#5)	P:\install_media\Simon Tatham\PuTTY\0.74\Alternative binary files (64-bit)
+* Updated Simon Tatham's plink.exe to 0.74 (#1)	P:\install_media\Simon Tatham\PuTTY\0.74\Alternative binary files (64-bit)
+
+v.200722 - DK
+* Modified event log query to select latest 10 based on type User32/6008 (#70)
+* Filter removed for -gt 750K (#11v)
+* Updated Frequent Called Number list (#98)
+* Prompt to restart stopped services instead of auto start.  Added App Pool service to display(restart is manual) (#30)
++ Check for Heavy Memory use from Teams, Chrome, WW, RuntimeBroker (#11h)
++ Remove 'backup-*' folders from NS (#43d)
++ Purge browser cache on users on NS - impact assesment needed (#71c)
++ Delete *.dmp and windows\temp\*.* /s on NS server (#71d) 
+
+v.200717 - BB
+* Added "/R:5 /W:5" so that we can still get a copy of the latest VCA Ops Portal on our machines if someone has PingInfoView.exe locked and in use ...as well as other files. (#robo)
+
+v.200529.1 - HK, DK
++ Check and update local hospital master xlsx file. (#14u)
++ Check for shutdown events in windows system logs. (#70)
++ Unlock AD Accounts. (#unlock)
++ Launch mmc directory. (#mmc)
+
+v.200529 - BB
+* Added "Path" as a field to better see what the processes are related to. (#11p)
+
+v.200515 - HK, DK
++ Added ability to send terminal messages to all users at a given site. (#7m)
++ Added impacted user selection for ServiceNow incidents. (#8t)
++ Added all site user emails to impacted user drop down list. (#14t)
+* ServiceNow incident generation now includes server hostname in the short description. (#14t)
++ Added 'san' command to launch sana/sanb web pages. (#san)
++ Added launch san ssh sessions. (#5s)
++ Added launch ilo ssh session(s). (#5i)
+* vmincom/vmdecom hostnames have been moved to the bottom of pinginfoview hosts. (#13)
+* Corrected UPS Web launch to include suffix number on clustered site hostnames. (#31w)
+
+v.200506
+* Enabling/Disabling SSH now refreshes services state query for a more accurate reading. (#3, #4)
+* Filtered out AD 'CNF' objects from various actions using Get-ADComputer. (#13, etc)
+* SNOW incident generation dialog now stays open after generating a ticket. (#14t)
++ Added some Configuration Items and SQL DBA assignment group. (#14t)
+
+v.200428
++ Critical services check will now also check for SQLServerReportingServices . (#30)
++ Added site server hostnames into Configuration Item selection. (all items may not be accepted by SNOW). (#14t)
++ Added additional assignment groups. (#14t)
+
+v.200416
++ Added 'pw' to hidden menu for generating strong passwords. (#pw)
++ WWAPI ticket generation will now prompt for confirmation. (#37)
+* Fixed issue when WWAPI ticket generation prompted for credentials even when they already existed. (#37)
+* Implemented workaround to prevent incident generator from crashing powershell. (workaround fix not confirmed) (#14t)
+
+v.200413
+* Categorized menu.
+* Removed prompt to save password.
+* Updated all-hospital-circuits path. (#15)
+
+v.200409
+* Fixed issue where saving esxi creds was continously prompt if not saved. Now saves automatically.
+* Possibly fixed issue where enabling/disabling SSH did not display correctly.
+
+v.200408
++ All credentials are now persistent and managed within windows credential manager.
++ WWAPIReports can now generate SNOW Tickets via API. (#37)
+* Delete credentials was reworked and is now selectable. (#99)
+
+v.200327
++ Added TimeZone to WW API Report and Email. (#37)
++ Added launch site pictures web link. (#22w)
+
+v.200317 DK, HK
++ Added Notifications Count & Clear registry to hidden menu. (#41n)
+* Process memory is now server selectable. (#11p)
+
+v.200305
++ Added '11p' for process memory use summary. (#11p)
++ Terminal session now includes potential orphan disks at the bottom of the list. (#77/L)
++ Ilo Remote Console now prompts/saves credentials prior to launching. (#32)
++ '-api' hostname added to pinginfoview (#13)
+* Corrected hostname when launching ilo remote console. (#32)
+* Fixed issue where admin credentials were not saving in session. (#11)
+* Fixed issue where admin credentials prompt occured when not necessary. (#12)
+* Added hostname to AuxCycle not supported message for ilo4. (#36a)
+* Renamed 'pinginfoview' to 'site ping status'. (#13)
+
+v.200213 HK, DK
++ Memory/Disk/CPU check now works on RODCs. (#11)
++ Expand drive now works on some RODCs (Dependent on RODC's configuration). (#12)
++ Display VHDs mounted on Cluster NS. (#41d)
+* Increased timeout period for Memory/Disk/CPU check. (#11)
+* Launch ilo now launches in default browser instead of Internet Explorer (as iLO2 are no longer standard). (#9)
+
+v.200207
++ Server name, model, and serial number are now included in esxi check. (#28)
+* Fixed issue where serial number was no longer displaying in ilo status. (#27)
+
+v.200205 - HK, DK
+* Fixed issue where enabling/disabling SSH did not properly display output to the console. (#3,#4)
+* Updated Ilo Remote Console to use -vm-ilo instead of -ilo. (#32)
+* Internal changes.
+
+v.200124
++ Logging off multiple users now displays as users are being logged off. Faster. (#77L)
+* Idle days are no longer truncated in IdleTime column. (#77/L)
+* 'Check critical services' now completes faster. (#30)
+* Aux Cycle now asks for confirmation; cluster hosts are now selectable. (#36a)
+* Updated Solarwinds Orion launch link to https. (#21)
+
+v.200120 - DK, HK
++ Add message to output for WOOFware API report (#37)
++ s for Secret/Hidden menu (#s)
+* Fixed instances where hospital hours were not displaying for some sites. (#14)
+
+v.200117
++ Hospital hours are now included in hospital master (pulled live from hospital's website). (#14)
++ New action '1L' launches drive reports directory. (#1L)
++ New 'hidden' command 'robo' in host selection prompt to copy ops portal locally to desktop.
+* Drive/Controller reports now save to network share. (#1)
+* Logging out a user now includes server label in quser query. (#77L)
+
+v.200116
++ Internal cluster sites list updated.
+* Changed DNS CNAME/A Record lookup to use DCOM protocol instead of WSMAN (default) due to WSMAN's unreliability. (#23)
+
+v.200115
++ A message is now displayed when a site is known to be migrated (or in process) to VMWare Cloud. This is determined by the ClusterSites.csv file.
++ Added CNAME along with A Record. (#23)
+* You can now log out multiple users (#7L)
+
+v.200107 - BB
+* Corrected spelling to WOOFware everywhere within script.
+* Added "AU" to the beginning of the email subject to match the 2020 new ticket format. (#37)
+
+v.191219
++ Updated cluster list.
++ Added timezone to title.
++ Added host selection history. (h)
++ Added hardware NIC details to ilo status. (#27)
++ Added send auxilary cycle signal for Gen10. (#36a)
+* Full script path and filename included in title.
+* New session now launches same script if non-standard version is being used. (#999)
+* Dhcp mgmt server is now selectable. (#24)
+
+v.191218 - BB
++ Added Security Engineering's list of PortQry.exe's ports.  It was long so they got their own number. (#40s)
+* Added PHHOSPDHCP1 & PHHOSPDHCP2 to DHCP launch windows because DHCP is going more centralized. (#24)
+
+v.191209 - DK, HK
++ Check folder structure for junction (VHD mount) vs local folder. (#41m)
++ Launch UPS web page. (#31w)
+* Changed function to echo which guest is being checked and provide output message. (#43)
+* Ommited any site AD object hostname with an empty IPv4 entry. (#13)
+
+v.191206 - BB
+* #40 Added api.woofware.com 443
+
+v.191203 - DK, HK
++ Lists temp folders on NS servers (#41)
++ Stops appreadiness serverice on NS servers (#42 - the answer to everything)
++ Lists .bak profiles in NS registry (#43)
++ Expand drive now works for any drive. (#12)
+* Memory/Disk/CPU output is now grouped by type of report. (#11)
+
+v.191126
++ Updated cluster list.
++ Esxcli drive report now uses Posh-SSH instead of plink. Will now auto enable SSH if failure to connect. (#1/2)
+* Enable/Disable SSH will now only enable or disable if the SSH service is off or on respectively. (#3/4)
+* Improved PortQry to use sessions; PortQry download now also works on Windows 2003 (-fusion). (#40)
+- Removed launch prompt on new version availability.
+- Removed easter egg from changelog.
+
+v.191121 - BB
++ Added PortQry.exe to test UDP/TCP connectivity from hospital outbound (#40)
+* Updated ESX SSH commands (#5)
+* Removed -ups1 & -ups2 from PingInfoView (#13)
+
+v.191106
++ Added email to SN-ITOperations@vca.com for ticket generation in WW API Health Report (#37)
++ Check UPS will now display G5 model instead of erroring out. (#31)
+* Changed -ilo to -vm-ilo. (#9)
+
+v.191024
++ Added Woofware API Health Report. (#37)
++ Option to copy ww memory results as html in clipboard. (#11v)
+
+v.191022
++ VMWare Remote Console should now launch even if not installed. (#29)
++ Added user session memory. (hidden command for now) (#11m)
++ Added logoff user. (hidden command for now) (#77L)
+* Fixed date sorting in IML report. (#34)
+* Reduced time to query woofware high memory users. (#11v)
+* Fixed bug where menu displayed while changing sites in cluster selection menu.
+
+v.191017 - Don K
++ View high memory woofware sessions (hidden command for now) (#11v)
++ Flush runtime broker memory (hidden command for now) (#11f)
+* Adjusted sorting for cluster sites in pinginfoview (#13)
+* Updated telecom docs.
+
+v.191007
++ Added SID, vdisk mount location, and disk number for cluster sites. (#77)
+
+v.191004
++ Reset iLO. (#36)
+
+v.191003
+* Updated cluster sites csv.
++ Added cluster hosts/ilo to pinginfoview. (#13)
+* Removed entries and improved sorting for cluster sites in pinginfoview. (#13)
++ Included VMWare Remote Console installation under bin directory.
+* Set PowerCLIConfiguration from Unset to Warn if not already configured.
+* Updated PuTTY/Plink 0.67 -> 0.73. Chagelog: https://www.chiark.greenend.org.uk/~sgtatham/putty/changes.html
+* Updated WinSCP 5.15 -> 5.15.4. Chagelog: https://winscp.net/eng/docs/history
+* Updated PingInfoView 1.80 -> 1.86. Changelog: http://www.nirsoft.net/utils/multiple_ping_tool.html
+* Updated VMWare.PowerCLI modules. Changelog: https://vdc-download.vmware.com/vmwb-repository/dcr-public/1acf4549-58e9-403a-b2b2-b6fad1e0be37/3902eeff-eae6-4f7e-aa43-03780cc38ce5/changelog.html
+* Updated HPEiLOCmdlets 2.1 -> 2.2. Changelog: https://support.hpe.com/hpsc/swd/public/detail?swItemId=MTX_78b5f16f96f0464782b32bc8e5#tab-history
+
+v.190829 - Brian Boner
++ Added "-sanA" & "-sanB" to #13 (PingInfoView)
+* Changed the OutGridView of #34 (IML).  Could not get the DatTime field to sort properly.
+
+v.190530 - Brian Boner
++ Added "-fuse" to #13 (PingInfoView)
+
+v.190530
++ Ilo remote console will no longer prompt for credentials if previously entered in session.
+* Fixed circuit selection not working.
+* Fixed java detection missing some versions of java.
+
+v.190516
++ Added 'master' and 'circuit' for user selectable host selection.
++ Added launch service now.
++ Updated cluster list.
+
+v.190501
+* Fixed bug where text would no longer display after running action 31 (UPS).
++ 0/999 can no longer be selected as a server.
++ 999 (new session) now works at server selection screen.
+
+v.190430
++ Added View IML action 34.
++ Added Pet Partners (h5000) support for headcount.
++ Added more error handling for when a site is selected with non-standard h####-vm format.
+* Extended horizontal bar for host.
+
+v.190426
++ Added server serial number to action 27.
++ Added current time to cmdline.
++ Added time/t commands for timestamp.
+
+v.190422
++ Added 32/64 binaries for ipscanner.
++ Action 16 now uses hospitalmaster GPURL.
+* Corrected Action 16 to use hospitalmaster.xlsx instead of CSV.
+
+v.190418
++ Hospital Master now imported from xlsx instead of csv.
++ View and toggle server uid.
++ Script now uses local copy of putty and winscp.
++ VMware.VimAutomation.Core module and dependent modules are now included.
++ HPEiLOCmdlets module now included.
+
+v.190410
++ Added color to menu for non-ops specific actions.
++ Putty and WinSCP are now included.
++ PowerCLI (ESXi) specific functionality now only requires VMware.VimAutomation.Core and not the full VMware.Powercli package.
+* Changed internal directory structure.
+
+v.190405
++ Added launch ilo remote console (action 32)
+
+v.190404
++ Added launch vnc next to quser (action 77)
++ Added memory info on check ilo status
+
+v.190327
++ Added cluster support for checking critical services (action 30).
++ Added ups status check.
+* Check ilo status now displays all hosts in cluster.
+
+v.190322
++ Added critical services check.
+* Updated cluster list.
+
+v.190308
++ Added VMWare Remote Console (action 29)
+* Ops Portal now launches in powershell console.
+* Improved formatting for action 11.
+* Improved error handling for action 11.
+* Ilo connnection handling reverted to re-iniate connection on each use.
+* Consolidated 27 & 28.
+
+v.190228
++ Added iLO server status (action 27).
+* Improved iLO connection handling.
+* Changed psu status 27 -> 28.
+* Changed network adapter 28 -> 29.
+* Changed color of server selection text, and default output text.
+
+v.190226
++ Added physical server network adapter check.
+
+v.190225
+- Removed actions 25 & 26.
++ Added restart services and web portals; Actions 25/26.
++ Added power supply redundancy check.
+* hospital circuits now pulls latest csv from the web.
+
+v.190118 - Brian Boner
++ Added "Back Line to EZ output format of #14.
+
+v.181212 - Brian Boner
++ Added new output to #14's EZ list like the Time Zone and URL.
++ Added new commands to #5's SSH suggestion list; like iLO.
++ Added new #25 Computer Management (compmgmt.msc) connecting to NS
++ Added new #26 Services.msc connecting to NS
+
+v.181207
+* Fixed bug where running ipscanner changed the actions prompt IP to the gateway IP.
+* Hid cmd prompt when launching dhcp mmc.
+
+v.181206
++ Added additional output formats for Hospital Master.
++ Added ability to check site DNS A records
++ Added dhcp mmc quick launch.
+
+v.181204
++ Added version number and hostname in title bar.
++ Added additional commands for putty session.
++ Added util to memory/cpu check.
+* Corrected expand c: drive to show drive space before expanding. (broke on 181116)
+* Corrected prompt displaying previously resolved DNS name for IP specified sites.
+* Fixed a bug where a new line appeared after running actions 1 & 2.
+
+v.181116
++ Server selection for memory, drive, cpu and uptime check (action 11).
++ Added horizontal line to action 11 output for multiple servers.
++ Added hostname, date, and uptime to putty launch. -BB
+* Made all scripts pre-load at startup.
+* Fixed version check; broke on v.181107 when fixing depth overflow issue.
+* Version command now also checks for latest version.
+* Renamed headcount to site users and headcount.
+* Active Directory computers is now limited to servers; includes OU path.
+
+v.181115
++ Server selection for expand c drive (action 12).
++ Server selection for all RDC servers (action 19).
++ Online column added to RDC (action 19).
++ Added AD Users to headcount.
+* Improved quser timeout rate.
+
+v.181114
++ Cluster site support.
++ Quser cluster support.
++ Launch NS cluster support.
++ Action 21, launch orion site page.
++ Action 22, launch site pictures.
+* IP scanner now launches server and workstation subnets for clustered sites.
+* Fixed exclicheck from throwing error when checking an unresponsive controller.
+* Changed AD Computer sorting to OS -> Name. (Previously set to OS -> IP)
+* DNS resolution only occurs once when selecting a host instead of multiple instances.
+
+v.181108
++ Enhanced pinginfoview to use active directory
++ Added ip scanner
++ Added hostname to actions prompt
++ Added new portal session action
++ Added query active directory computers action
++ Added ns rdc action
++ Added ilo urls for find-hpeilo results
+* Fixed bug where action 2 truncated summary output.
+* Fixed bug where action 2 summary triggered error for Gen10 controller.
+* Fixed bug where version commands closed out the application
+
+v.181107
+* Fixed CPU usage not displaying when running action 11 and find-hpeilo.
+* Fixed depth overflow error caused by previous looping implementation.
+* Menu now only displays on host change or by entering ?, menu, or help.
+- Removed 'Press any key to continue'
+
+v.181106
++ Added find-hpeilo
++ Added DNS name resolution for esxi/quser hostnames
++ Added version command to get version information
++ Added module checking with installation tips
+* Updated all-hospital-circuits to 11-02-18
+* Changed headcount text color to Cyan
+* Changed server text and host horizontal line color
+* Miscellaneous internal stuff
+
+v.181101
++ Added version check
++ Added -gw to pinginfoview
++ Added script location to title
++ Added change log
+* Fixed miscellaneous stuff
+- Removed region columns from Hospital Master output
