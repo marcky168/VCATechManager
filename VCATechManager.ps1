@@ -203,13 +203,40 @@ try {
             }
         }
 
-        # New: Check for full repo update
-        $fullUpdateNeeded = Invoke-WebRequest -Uri "https://raw.githubusercontent.com/marcky168/VCATechManager/main/full_update.txt" -UseBasicParsing -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Content
-        if ($fullUpdateNeeded -eq "yes") {
-            Write-Host "Full repo update available (new or changed files/folders). Recommend updating." -ForegroundColor Yellow
-            Write-Log "Full repo update detected"
-            $fullUpdateChoice = Read-Host "Update only changed/added files (API sync)? (y/n)"
-            if ($fullUpdateChoice.ToLower() -eq 'y') {
+        # New: Check for full repo update - only prompt if there are actual changes
+        if (Test-Path $cacheFile) {
+            try {
+                # Load cache
+                $jsonCache = Get-Content $cacheFile | ConvertFrom-Json
+                $localCache = @{}
+                $jsonCache.PSObject.Properties | ForEach-Object { $localCache[$_.Name] = $_.Value }
+
+                # Fetch current tree
+                $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
+                $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
+                $commitData = ConvertFrom-Json $commitResponse.Content
+                $treeSha = $commitData.commit.tree.sha
+                $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$treeSha?recursive=1"
+                $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
+                $tree = (ConvertFrom-Json $treeResponse.Content).tree
+
+                # Check for changes
+                $hasChanges = $false
+                foreach ($item in $tree) {
+                    $path = $item.path
+                    $remoteSha = $item.sha
+                    $cachedSha = $localCache[$path]
+                    if (-not $cachedSha -or $remoteSha -ne $cachedSha) {
+                        $hasChanges = $true
+                        break
+                    }
+                }
+
+                if ($hasChanges) {
+                    Write-Host "Full repo update available (new or changed files/folders). Recommend updating." -ForegroundColor Yellow
+                    Write-Log "Full repo update detected"
+                    $fullUpdateChoice = Read-Host "Update only changed/added files (API sync)? (y/n)"
+                    if ($fullUpdateChoice.ToLower() -eq 'y') {
                 try {
                     # Helper function to sync repo incrementally using GitHub API
                     function Sync-Repo {
