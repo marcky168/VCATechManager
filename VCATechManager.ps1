@@ -6,7 +6,7 @@
 # 2025-01-01: Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck. Added try-catch, Write-Log, Write-Progress. Bumped version to 1.6. Author: Grok.
 
 # Set version
-$version = "1.11"  # Added Outlook startup check for email options
+$version = "1.12"  # Added auto-update with GitHub API for incremental repo sync
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -171,19 +171,107 @@ try {
     Import-Module -Name "$PSScriptRoot\Private\VCATechManagerFunctions.psm1" -ErrorAction Stop
     Write-Log "Imported custom module: VCATechManagerFunctions"
 
-    # New: Version check at start
+    # New: Auto-update logic in the version check section
     try {
-        $remoteVersion = Invoke-WebRequest -Uri "https://raw.githubusercontent.com/marcky168/VCATechManager/main/Private/Version.txt" -UseBasicParsing -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Content
+        $remoteVersion = Invoke-WebRequest -Uri "https://raw.githubusercontent.com/marcky168/VCATechManager/main/version.txt" -UseBasicParsing -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Content
         if ($remoteVersion -gt $version) {
             Write-Host "New version available: $remoteVersion. Update recommended." -ForegroundColor Yellow
-            Write-Log "New version available: $remoteVersion"
-        } else {
-            Write-Host "Script is up to date (v$version)." -ForegroundColor Green
-            Write-Log "Script is up to date (v$version)"
+            Write-Log "New version detected: $remoteVersion"
+            $updateChoice = Read-Host "Download and update to version $remoteVersion? (y/n)"
+            if ($updateChoice.ToLower() -eq 'y') {
+                try {
+                    $scriptUrl = "https://raw.githubusercontent.com/marcky168/VCATechManager/main/VCATechManager.ps1"
+                    $newScriptPath = "$PSScriptRoot\VCATechManager_new.ps1"
+                    Invoke-WebRequest -Uri $scriptUrl -OutFile $newScriptPath -UseBasicParsing
+                    Move-Item -Path $newScriptPath -Destination $PSScriptRoot\VCATechManager.ps1 -Force
+                    Write-Host "Updated to version $remoteVersion. Restart the script to use the new version." -ForegroundColor Green
+                    Write-Log "Updated script to version $remoteVersion"
+                } catch {
+                    Write-Host "Update failed: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Log "Update failed: $($_.Exception.Message)"
+                }
+            }
+        }
+
+        # New: Check for full repo update
+        $fullUpdateNeeded = Invoke-WebRequest -Uri "https://raw.githubusercontent.com/marcky168/VCATechManager/main/full_update.txt" -UseBasicParsing -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Content
+        if ($fullUpdateNeeded -eq "yes") {
+            Write-Host "Full repo update available (new or changed files/folders). Recommend updating." -ForegroundColor Yellow
+            Write-Log "Full repo update detected"
+            $fullUpdateChoice = Read-Host "Update only changed/added files (API sync)? (y/n)"
+            if ($fullUpdateChoice.ToLower() -eq 'y') {
+                try {
+                    # Helper function to sync repo incrementally using GitHub API
+                    function Sync-Repo {
+                        $owner = "marcky168"
+                        $repo = "VCATechManager"
+                        $branch = "main"
+                        $cacheFile = "$PSScriptRoot\repo_cache.json"
+                        $apiHeaders = @{ Accept = "application/vnd.github+json" }  # Add Authorization header if private: @{ Authorization = "Bearer YOUR_PAT" }
+
+                        # Get latest commit SHA
+                        $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
+                        $commitResponse = Invoke-WebRequest -Uri $commitUrl -Headers $apiHeaders -UseBasicParsing
+                        $commitSha = (ConvertFrom-Json $commitResponse.Content).sha
+
+                        # Get recursive tree
+                        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$commitSha?recursive=1"
+                        $treeResponse = Invoke-WebRequest -Uri $treeUrl -Headers $apiHeaders -UseBasicParsing
+                        $tree = (ConvertFrom-Json $treeResponse.Content).tree
+
+                        # Load local cache (SHA map)
+                        if (Test-Path $cacheFile) {
+                            $localCache = Get-Content $cacheFile | ConvertFrom-Json
+                        } else {
+                            $localCache = @{}
+                        }
+
+                        $newCache = @{}
+
+                        # Process each item in tree
+                        foreach ($item in $tree) {
+                            $path = $item.path
+                            $remoteSha = $item.sha
+
+                            $newCache[$path] = $remoteSha
+
+                            if ($item.type -eq "tree") {
+                                # Create directory if missing
+                                $fullPath = "$PSScriptRoot\$path"
+                                if (-not (Test-Path $fullPath)) {
+                                    New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
+                                    Write-Host "Created folder: $path" -ForegroundColor Green
+                                }
+                            } elseif ($item.type -eq "blob") {
+                                # Check if local file exists and SHA matches
+                                $fullPath = "$PSScriptRoot\$path"
+                                $localSha = if (Test-Path $fullPath) { (Get-FileHash $fullPath -Algorithm SHA1).Hash.ToLower() } else { "" }
+                                if ($localSha -ne $remoteSha) {
+                                    # Download file
+                                    $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+                                    Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -UseBasicParsing
+                                    Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
+                                    Write-Log "Downloaded/Updated file: $path"
+                                }
+                            }
+                        }
+
+                        # Save new cache
+                        $newCache | ConvertTo-Json | Set-Content $cacheFile
+                        Write-Host "Repo sync complete." -ForegroundColor Green
+                        Write-Log "Repo sync complete"
+                    }
+
+                    Sync-Repo
+                } catch {
+                    Write-Host "Full repo update failed: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Log "Full repo update failed: $($_.Exception.Message)"
+                }
+            }
         }
     } catch {
-        Write-Host "Version check failed. Check internet or URL." -ForegroundColor Yellow
-        Write-Log "Version check error: $($_.Exception.Message)"
+        Write-Host "Failed to check for updates: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Log "Failed to check for updates: $($_.Exception.Message)"
     }
 
     # Import ActiveDirectory module with check

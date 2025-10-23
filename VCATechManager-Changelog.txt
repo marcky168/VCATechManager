@@ -2,6 +2,9 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.12 - 2025-10-23
++ Added auto-update with GitHub API for incremental repo sync: fetches latest commit SHA, compares file SHAs, downloads only changed/missing files, creates missing directories, and caches SHAs for efficiency.
+
 v1.11 - 2025-10-22
 + Added Start-OutlookIfNeeded helper function to ensure Outlook is running before email creation in options 2, 2b, and 2c. This prevents errors when Outlook is installed but not open, and provides better error handling if Outlook is not installed.
 + Enabled version checking against GitHub repository (https://github.com/marcky168/VCATechManager) at startup to notify users of available updates.
