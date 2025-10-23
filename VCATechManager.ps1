@@ -206,11 +206,8 @@ function Invoke-GitHubApi {
     param($url, $headers)
     try {
         Write-Host "Attempting API call: $url" -ForegroundColor Cyan
-        # Use headers provided but attach Authorization if we already have a PAT
-        $headersToUse = @{}
-        if ($headers) { $headersToUse = $headers.Clone() }
-        if ($pat) { $headersToUse["Authorization"] = "Bearer $pat" }
-        $response = Invoke-WebRequest -Uri $url -Headers $headersToUse -UseBasicParsing -ErrorAction Stop
+        # Try without auth first
+        $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
         return $response
     } catch {
         # Safely get status code (Response may be null)
