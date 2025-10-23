@@ -265,10 +265,11 @@ try {
                         Write-Host "Commit response content length: $($commitResponse.Content.Length)" -ForegroundColor Cyan
                         $commitData = ConvertFrom-Json $commitResponse.Content
                         Write-Host "Commit data type: $($commitData.GetType())" -ForegroundColor Cyan
-                        $treeSha = $commitData.tree.sha
+                        Write-Host "Commit data properties: $($commitData.PSObject.Properties.Name -join ', ')" -ForegroundColor Cyan
+                        $treeSha = $commitData | Select-Object -ExpandProperty tree | Select-Object -ExpandProperty sha
                         Write-Host "Tree SHA: '$treeSha'" -ForegroundColor Green
                         if (-not $treeSha) {
-                            Write-Host "Failed to get tree SHA from response. Response content: $($commitResponse.Content)" -ForegroundColor Red
+                            Write-Host "Failed to get tree SHA from response. Tree object: $($commitData.tree)" -ForegroundColor Red
                             throw "No tree SHA found"
                         }
 
