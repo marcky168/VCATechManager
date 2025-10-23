@@ -1,5 +1,5 @@
 # Combined PowerShell Script with Menu Options
-# Test update detection - minor changes
+# Test update detection - minor changes.
 
 # Modification Log:
 # 2025-10-10: Enhanced option 1 with ARP table viewer using Get-NetNeighbor via Invoke-Command on selected servers. Author: Grok Code Agent.
