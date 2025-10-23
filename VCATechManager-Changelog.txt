@@ -2,10 +2,6 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
-v1.13 - 2025-10-23
-+ Fixed parser error in auto-update logic by adding missing catch block for repo change detection try block.
-+ Improved auto-update to only prompt for updates when changes are detected, otherwise proceeds silently to main menu.
-
 v1.12 - 2025-10-23
 + Added auto-update with GitHub API for incremental repo sync: fetches latest commit SHA, compares file SHAs, downloads only changed/missing files, creates missing directories, and caches SHAs for efficiency.
 
