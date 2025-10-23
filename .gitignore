@@ -40,3 +40,6 @@ desktop.ini
 *.nuget.props
 
 !.gitignore
+
+test_log.txt
+Changelog.txt
