@@ -16,7 +16,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # GitHub repo settings for auto-update
 $owner = "marcky168"
 $repo = "VCATechManager"
-$branch = "HEAD"
+$branch = "main"
 $cacheFile = "$scriptDir\repo_cache.json"
 $apiHeaders = @{
     Accept = "application/vnd.github+json"
@@ -24,6 +24,24 @@ $apiHeaders = @{
 }
 $patPath = "$scriptDir\Private\github_pat.txt"
 $pat = $null
+
+# Load PAT if exists
+if (Test-Path $patPath) {
+    $pat = Get-Content $patPath -Raw
+}
+
+# If no PAT and repo might be private, prompt for it
+if (-not $pat) {
+    Write-Host "No GitHub PAT found. If your repository is private, please enter your Personal Access Token (PAT) now." -ForegroundColor Yellow
+    Write-Host "Leave blank if the repository is public." -ForegroundColor Cyan
+    $patInput = Read-Host -AsSecureString "GitHub PAT (optional)"
+    if ($patInput) {
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($patInput)
+        try { $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+        try { $pat | Set-Content -Path $patPath -Force } catch { Write-Log "Failed to save PAT: $($_.Exception.Message)" }
+        Write-Host "PAT saved for future use." -ForegroundColor Green
+    }
+}
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -235,13 +253,6 @@ function Invoke-GitHubApi {
 
 # Helper function to sync repo incrementally using GitHub API
 function Sync-Repo {
-
-    # Check if repo is private and prompt for PAT if needed
-    if (Test-Path $patPath) {
-        $pat = Get-Content $patPath -Raw
-    }
-
-
 
     # Get latest commit SHA
     $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
