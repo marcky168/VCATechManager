@@ -205,7 +205,7 @@ try {
                     function Sync-Repo {
                         $owner = "marcky168"
                         $repo = "VCATechManager"
-                        $branch = "main"
+                        $branch = "HEAD"
                         $cacheFile = "$PSScriptRoot\repo_cache.json"
                         $apiHeaders = @{
                             Accept = "application/vnd.github+json"
@@ -262,7 +262,13 @@ try {
                         # Get latest commit SHA
                         $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
                         $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
-                        $commitSha = (ConvertFrom-Json $commitResponse.Content).sha
+                        $commitData = ConvertFrom-Json $commitResponse.Content
+                        $commitSha = $commitData.sha
+                        Write-Host "Commit SHA: $commitSha" -ForegroundColor Green
+                        if (-not $commitSha) {
+                            Write-Host "Failed to get commit SHA from response. Response content: $($commitResponse.Content)" -ForegroundColor Red
+                            throw "No commit SHA found"
+                        }
 
                         # Get recursive tree
                         $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$commitSha?recursive=1"
