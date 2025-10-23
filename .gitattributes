@@ -1,3 +1,0 @@
-*.exe filter=lfs diff=lfs merge=lfs -text
-*.xlsx filter=lfs diff=lfs merge=lfs -text
-Private/bin/* filter=lfs diff=lfs merge=lfs -text
