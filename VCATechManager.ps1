@@ -4,7 +4,7 @@
 # 2025-10-23: Added auto-update feature using GitHub API to check for new versions and full repo updates. Author: Grok Code Agent.
 # 2025-10-10: Enhanced option 1 with ARP table viewer using Get-NetNeighbor via Invoke-Command on selected servers. Author: Grok Code Agent.
 # 2025-09-19: Enhanced option 5 with parallel Get-TSSession check including ClientIP from event logs; added VNC/Shadow prompts for active users (VNC to client IP via $PSScriptRoot\Private\bin\vncviewer.exe), fallback to event logs. Rationale: Prioritize live actions for better UX and connect to client workstations. Author: Grok. Tested: Isolated snippet passes for sample AU 966.
-# 2025-01-01: Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck. Added try-catch, Write-Log, Write-Progress. Bumped version to 1.6. Author: Grok.
+# 2025-09-09: Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck. Added try-catch, Write-Log, Write-Progress. Bumped version to 1.6. Author: Grok.
 
 # Set version
 $version = "1.12"  # Added auto-update with GitHub API for incremental repo sync
@@ -185,8 +185,16 @@ try {
                     $newScriptPath = "$PSScriptRoot\VCATechManager_new.ps1"
                     Invoke-WebRequest -Uri $scriptUrl -OutFile $newScriptPath -UseBasicParsing
                     Move-Item -Path $newScriptPath -Destination $PSScriptRoot\VCATechManager.ps1 -Force
-                    Write-Host "Updated to version $remoteVersion. Restart the script to use the new version." -ForegroundColor Green
+                    Write-Host "Updated to version $remoteVersion." -ForegroundColor Green
                     Write-Log "Updated script to version $remoteVersion"
+                    $restartNow = Read-Host "Do you want to restart with the new version now? (y/n)"
+                    if ($restartNow.ToLower() -eq 'y') {
+                        Write-Host "Restarting with new version..." -ForegroundColor Green
+                        & $PSScriptRoot\VCATechManager.ps1
+                        exit
+                    } else {
+                        Write-Host "Restart the script manually to use the new version." -ForegroundColor Yellow
+                    }
                 } catch {
                     Write-Host "Update failed: $($_.Exception.Message)" -ForegroundColor Red
                     Write-Log "Update failed: $($_.Exception.Message)"
