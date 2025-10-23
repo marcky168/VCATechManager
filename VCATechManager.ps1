@@ -8,7 +8,7 @@
 # 2025-09-09: Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck. Added try-catch, Write-Log, Write-Progress. Bumped version to 1.6. Author: Grok.
 
 # Set version
-$version = "1.12"  # Added auto-update with GitHub API for incremental repo sync
+$version = "1.13"  # Added auto-update with GitHub API for incremental repo sync
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -377,6 +377,10 @@ try {
                     Write-Log "Full repo update detected - updating automatically"
 
                     Sync-Repo
+                }
+            } catch {
+                Write-Host "Failed to check for repo changes: $($_.Exception.Message)" -ForegroundColor Yellow
+                Write-Log "Failed to check for repo changes: $($_.Exception.Message)"
             }
         }
     } catch {
