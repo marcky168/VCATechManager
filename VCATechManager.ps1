@@ -16,7 +16,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # GitHub repo settings for auto-update
 $owner = "marcky168"
 $repo = "VCATechManager"
-$branch = "HEAD"
+$branch = "main"
 $cacheFile = "$scriptDir\repo_cache.json"
 $apiHeaders = @{
     Accept = "application/vnd.github+json"
@@ -259,19 +259,8 @@ function Sync-Repo {
     Write-Host "Commit data type: $($commitData.GetType())" -ForegroundColor Cyan
     Write-Host "Commit data properties: $($commitData.PSObject.Properties.Name -join ', ')" -ForegroundColor Cyan
 
-    # Try multiple places to find the tree SHA depending on API response shape
-    $treeSha = $null
-    if ($commitData -and $commitData.commit -and $commitData.commit.tree -and $commitData.commit.tree.sha) {
-        $treeSha = $commitData.commit.tree.sha
-    } elseif ($commitData -and $commitData.tree -and $commitData.tree.sha) {
-        $treeSha = $commitData.tree.sha
-    } elseif ($commitData -and $commitData.sha) {
-        # Sometimes the commits endpoint returns a commit summary; fetch the full git/commit by SHA
-        $commitDetailUrl = "https://api.github.com/repos/$owner/$repo/git/commits/$($commitData.sha)"
-        $commitDetailResp = Invoke-GitHubApi -url $commitDetailUrl -headers $apiHeaders
-        $commitDetail = ConvertFrom-Json $commitDetailResp.Content
-        if ($commitDetail -and $commitDetail.tree -and $commitDetail.tree.sha) { $treeSha = $commitDetail.tree.sha }
-    }
+    # Extract tree SHA from commit data
+    $treeSha = $commitData.commit.tree.sha
 
     Write-Host "Tree SHA: '$treeSha'" -ForegroundColor Green
     if (-not $treeSha -or $treeSha -notmatch '^[a-f0-9]{40}$') {
@@ -385,14 +374,19 @@ try {
 
         # New: Check for full repo update - always check and update cache
         try {
-            # Fetch current tree
+            # Fetch latest commit SHA from GitHub API
             $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
-            $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
-            Write-Host "Commit response content: $($commitResponse.Content)" -ForegroundColor Yellow
-            $commitData = ConvertFrom-Json $commitResponse.Content
-            $treeSha = $commitData.tree.sha
+            $commitResponse = Invoke-WebRequest -Uri $commitUrl -UseBasicParsing -ErrorAction Stop
+            $latestCommit = ConvertFrom-Json $commitResponse.Content
+            $latestSHA = $latestCommit.sha
+
+            # Fetch the tree SHA from the commit
+            $treeSha = $latestCommit.commit.tree.sha
+
+            # Now use the tree URL with the tree SHA
             $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$treeSha?recursive=1"
-            $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
+            Write-Host "Attempting API call: $treeUrl"
+            $treeResponse = Invoke-WebRequest -Uri $treeUrl -UseBasicParsing -ErrorAction Stop
             $tree = (ConvertFrom-Json $treeResponse.Content).tree
 
             # Check for changes if cache exists
