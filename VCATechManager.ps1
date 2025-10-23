@@ -262,16 +262,19 @@ try {
                         # Get latest commit SHA
                         $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
                         $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
+                        Write-Host "Commit response content length: $($commitResponse.Content.Length)" -ForegroundColor Cyan
                         $commitData = ConvertFrom-Json $commitResponse.Content
-                        $commitSha = $commitData.sha
-                        Write-Host "Commit SHA: $commitSha" -ForegroundColor Green
-                        if (-not $commitSha) {
-                            Write-Host "Failed to get commit SHA from response. Response content: $($commitResponse.Content)" -ForegroundColor Red
-                            throw "No commit SHA found"
+                        Write-Host "Commit data type: $($commitData.GetType())" -ForegroundColor Cyan
+                        $treeSha = $commitData.tree.sha
+                        Write-Host "Tree SHA: '$treeSha'" -ForegroundColor Green
+                        if (-not $treeSha) {
+                            Write-Host "Failed to get tree SHA from response. Response content: $($commitResponse.Content)" -ForegroundColor Red
+                            throw "No tree SHA found"
                         }
 
                         # Get recursive tree
-                        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$commitSha?recursive=1"
+                        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$treeSha?recursive=1"
+                        Write-Host "Tree URL: $treeUrl" -ForegroundColor Cyan
                         $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
                         $tree = (ConvertFrom-Json $treeResponse.Content).tree
 
