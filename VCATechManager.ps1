@@ -235,7 +235,6 @@ try {
                 if ($hasChanges) {
                     Write-Host "Full repo update available (new or changed files/folders). Updating automatically..." -ForegroundColor Yellow
                     Write-Log "Full repo update detected - updating automatically"
-                try {
                     # Helper function to sync repo incrementally using GitHub API
                     function Sync-Repo {
                         $owner = "marcky168"
@@ -377,10 +376,6 @@ try {
                     }
 
                     Sync-Repo
-                } catch {
-                    Write-Host "Full repo update failed: $($_.Exception.Message)" -ForegroundColor Red
-                    Write-Log "Full repo update failed: $($_.Exception.Message)"
-                }
             }
         }
     } catch {
