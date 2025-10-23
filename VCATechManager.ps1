@@ -16,7 +16,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # GitHub repo settings for auto-update
 $owner = "marcky168"
 $repo = "VCATechManager"
-$branch = "main"
+$branch = "HEAD"
 $cacheFile = "$scriptDir\repo_cache.json"
 $apiHeaders = @{
     Accept = "application/vnd.github+json"
@@ -277,10 +277,10 @@ function Sync-Repo {
     }
 
     Write-Host "Tree SHA: '$treeSha'" -ForegroundColor Green
-    if (-not $treeSha) {
-        Write-Host "Failed to get tree SHA from response. Inspecting commit data..." -ForegroundColor Red
+    if (-not $treeSha -or $treeSha -notmatch '^[a-f0-9]{40}$') {
+        Write-Host "Invalid tree SHA: '$treeSha'. Inspecting commit response..." -ForegroundColor Red
         Write-Host ($commitResponse.Content) -ForegroundColor Red
-        throw "No tree SHA found"
+        throw "Invalid or missing tree SHA"
     }
 
     # Get recursive tree
@@ -391,6 +391,7 @@ try {
             # Fetch current tree
             $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
             $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
+            Write-Host "Commit response content: $($commitResponse.Content)" -ForegroundColor Yellow
             $commitData = ConvertFrom-Json $commitResponse.Content
             $treeSha = $commitData.tree.sha
             $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$treeSha?recursive=1"
