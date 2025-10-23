@@ -267,15 +267,16 @@ try {
                         Write-Host "Commit data type: $($commitData.GetType())" -ForegroundColor Cyan
                         Write-Host "Commit data properties: $($commitData.PSObject.Properties.Name -join ', ')" -ForegroundColor Cyan
                         $treeSha = $commitData.commit.tree.sha
-                        Write-Host "Tree SHA: '$treeSha'" -ForegroundColor Green
+                        Write-Host "Tree SHA: '$treeSha' type: $($treeSha.GetType())" -ForegroundColor Green
                         if (-not $treeSha) {
                             Write-Host "Failed to get tree SHA from response. Tree object: $($commitData.tree)" -ForegroundColor Red
                             throw "No tree SHA found"
                         }
 
                         # Get recursive tree
-                        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$treeSha?recursive=1"
-                        Write-Host "Tree URL: $treeUrl" -ForegroundColor Cyan
+                        Write-Host "Building tree URL with treeSha: '$treeSha'" -ForegroundColor Cyan
+                        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/" + $treeSha + "?recursive=1"
+                        Write-Host "Tree URL: '$treeUrl'" -ForegroundColor Cyan
                         $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
                         $tree = (ConvertFrom-Json $treeResponse.Content).tree
 
