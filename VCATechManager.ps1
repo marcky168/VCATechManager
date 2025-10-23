@@ -10,6 +10,21 @@
 # Set version
 $version = "1.13"  # Added auto-update with GitHub API for incremental repo sync
 
+# Get script directory
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# GitHub repo settings for auto-update
+$owner = "marcky168"
+$repo = "VCATechManager"
+$branch = "HEAD"
+$cacheFile = "$scriptDir\repo_cache.json"
+$apiHeaders = @{
+    Accept = "application/vnd.github+json"
+    "User-Agent" = "VCATechManager-Script/$version"
+}
+$patPath = "$scriptDir\Private\github_pat.txt"
+$pat = $null
+
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
 $host.UI.RawUI.ForegroundColor = "White"
@@ -19,7 +34,7 @@ Clear-Host
 $verboseLogging = $true
 
 # Load credentials early with expanded try-catch and logging
-$credPathAD = "$PSScriptRoot\Private\vcaadcred.xml"
+$credPathAD = "$scriptDir\Private\vcaadcred.xml"
 if (Test-Path $credPathAD) {
     try {
         $ADCredential = Import-Clixml -Path $credPathAD -ErrorAction Stop
@@ -60,8 +75,8 @@ if ($scriptPath) {
 
 # New: Logging toggle and path (create early for initial errors)
 $verboseLogging = $false
-$logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
+$logPath = "$scriptDir\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+if (-not (Test-Path "$scriptDir\logs")) { New-Item -Path "$scriptDir\logs" -ItemType Directory -Force | Out-Null }
 # Create log file early to ensure it exists
 New-Item -Path $logPath -ItemType File -Force | Out-Null
 
@@ -84,7 +99,7 @@ function Export-Results {
     param([array]$Results, [string]$BaseName, [string]$AU)
     $confirmExport = Read-Host "Export results to CSV? (y/n)"
     if ($confirmExport.ToLower() -eq 'y') {
-        $exportPath = "$PSScriptRoot\reports\${AU}_${BaseName}_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+        $exportPath = "$scriptDir\reports\${AU}_${BaseName}_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
         if ($Results.Count -gt 10) {
             Write-Progress -Activity "Exporting results" -Status "Writing to CSV..." -PercentComplete 50
         }
@@ -166,65 +181,67 @@ function Test-ADCredentials {
 }
 
 # Set global script root for use in functions
-$global:ScriptRoot = $PSScriptRoot
+$global:ScriptRoot = $scriptDir
+
+# Function to make API call with optional auth
+function Invoke-GitHubApi {
+    param($url, $headers)
+    try {
+        Write-Host "Attempting API call: $url" -ForegroundColor Cyan
+        # Use headers provided but attach Authorization if we already have a PAT
+        $headersToUse = @{}
+        if ($headers) { $headersToUse = $headers.Clone() }
+        if ($pat) { $headersToUse["Authorization"] = "Bearer $pat" }
+        $response = Invoke-WebRequest -Uri $url -Headers $headersToUse -UseBasicParsing -ErrorAction Stop
+        return $response
+    } catch {
+        # Safely get status code (Response may be null)
+        $statusCode = $null
+        try { if ($_.Exception.Response) { $statusCode = $_.Exception.Response.StatusCode } } catch {}
+        Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
+
+        # If 404 or 401, attempt to prompt for PAT (repo may be private)
+        if ($statusCode -eq 404 -or $statusCode -eq 401) {
+            Write-Host "404/401 detected. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
+            if (-not $pat) {
+                Write-Host "Please enter your GitHub Personal Access Token (PAT) if the repo is private. Leave blank to cancel." -ForegroundColor Yellow
+                $patInput = Read-Host -AsSecureString "GitHub PAT (leave blank if repo is public)"
+                if ($patInput) {
+                    # Convert SecureString to plain text for header use and storage
+                    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($patInput)
+                    try { $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+                    # Save PAT for future use
+                    try { $pat | Set-Content -Path $patPath -Force } catch { Write-Log "Failed to save PAT to $patPath : $($_.Exception.Message)" }
+                    Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
+                }
+            }
+            if ($pat) {
+                # Retry with auth
+                $authHeaders = @{}
+                if ($headers) { $authHeaders = $headers.Clone() }
+                $authHeaders["Authorization"] = "Bearer $pat"
+                Write-Host "Retrying with authentication..." -ForegroundColor Cyan
+                $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
+                return $response
+            } else {
+                Write-Host "No PAT provided. If repo is private, please provide a PAT. Otherwise, check repo URL and branch." -ForegroundColor Yellow
+                throw
+            }
+        } else {
+            throw
+        }
+    }
+}
 
 # Helper function to sync repo incrementally using GitHub API
 function Sync-Repo {
-    $owner = "marcky168"
-    $repo = "VCATechManager"
-    $branch = "HEAD"
-    $cacheFile = "$PSScriptRoot\repo_cache.json"
-    $apiHeaders = @{
-        Accept = "application/vnd.github+json"
-        "User-Agent" = "VCATechManager-Script/1.12"
-    }
 
     # Check if repo is private and prompt for PAT if needed
-    $patPath = "$PSScriptRoot\Private\github_pat.txt"
-    $pat = $null
     if (Test-Path $patPath) {
         $pat = Get-Content $patPath -Raw
     }
 
-    # Function to make API call with optional auth
-    function Invoke-GitHubApi {
-        param($url, $headers)
-        try {
-            Write-Host "Attempting API call: $url" -ForegroundColor Cyan
-            $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
-            return $response
-        } catch {
-            $statusCode = $_.Exception.Response.StatusCode
-            Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
-            if ($statusCode -eq 404) {
-                # Could be private repo or wrong URL
-                Write-Host "404 error detected. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
-                if (-not $pat) {
-                    Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) if the repo is private." -ForegroundColor Yellow
-                    $pat = Read-Host "GitHub PAT (leave blank if repo is public)"
-                    if ($pat) {
-                        $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
-                        # Save PAT for future use
-                        $pat | Set-Content $patPath
-                        Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
-                    }
-                }
-                if ($pat) {
-                    # Retry with auth
-                    $authHeaders = $headers.Clone()
-                    $authHeaders["Authorization"] = "Bearer $pat"
-                    Write-Host "Retrying with authentication..." -ForegroundColor Cyan
-                    $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
-                    return $response
-                } else {
-                    Write-Host "No PAT provided. If repo is private, please provide a PAT. Otherwise, check repo URL and branch." -ForegroundColor Yellow
-                    throw
-                }
-            } else {
-                throw
-            }
-        }
-    }
+
 
     # Get latest commit SHA
     $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
@@ -233,10 +250,25 @@ function Sync-Repo {
     $commitData = ConvertFrom-Json $commitResponse.Content
     Write-Host "Commit data type: $($commitData.GetType())" -ForegroundColor Cyan
     Write-Host "Commit data properties: $($commitData.PSObject.Properties.Name -join ', ')" -ForegroundColor Cyan
-    $treeSha = $commitData.commit.tree.sha
-    Write-Host "Tree SHA: '$treeSha' type: $($treeSha.GetType())" -ForegroundColor Green
+
+    # Try multiple places to find the tree SHA depending on API response shape
+    $treeSha = $null
+    if ($commitData -and $commitData.commit -and $commitData.commit.tree -and $commitData.commit.tree.sha) {
+        $treeSha = $commitData.commit.tree.sha
+    } elseif ($commitData -and $commitData.tree -and $commitData.tree.sha) {
+        $treeSha = $commitData.tree.sha
+    } elseif ($commitData -and $commitData.sha) {
+        # Sometimes the commits endpoint returns a commit summary; fetch the full git/commit by SHA
+        $commitDetailUrl = "https://api.github.com/repos/$owner/$repo/git/commits/$($commitData.sha)"
+        $commitDetailResp = Invoke-GitHubApi -url $commitDetailUrl -headers $apiHeaders
+        $commitDetail = ConvertFrom-Json $commitDetailResp.Content
+        if ($commitDetail -and $commitDetail.tree -and $commitDetail.tree.sha) { $treeSha = $commitDetail.tree.sha }
+    }
+
+    Write-Host "Tree SHA: '$treeSha'" -ForegroundColor Green
     if (-not $treeSha) {
-        Write-Host "Failed to get tree SHA from response. Tree object: $($commitData.tree)" -ForegroundColor Red
+        Write-Host "Failed to get tree SHA from response. Inspecting commit data..." -ForegroundColor Red
+        Write-Host ($commitResponse.Content) -ForegroundColor Red
         throw "No tree SHA found"
     }
 
@@ -282,14 +314,14 @@ function Sync-Repo {
 
         if ($item.type -eq "tree") {
             # Create directory if missing
-            $fullPath = "$PSScriptRoot\$path"
+            $fullPath = "$scriptDir\$path"
             if (-not (Test-Path $fullPath)) {
                 New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
                 Write-Host "Created folder: $path" -ForegroundColor Green
             }
         } elseif ($item.type -eq "blob") {
             # Check if remote SHA changed from cached SHA
-            $fullPath = "$PSScriptRoot\$path"
+            $fullPath = "$scriptDir\$path"
             $cachedSha = $localCache[$path]
             if (-not $cachedSha -or $remoteSha -ne $cachedSha) {
                 # Download file
@@ -310,7 +342,7 @@ function Sync-Repo {
 
 try {
     # Import the custom module for shared functions (e.g., Get-UserSessionsParallel)
-    Import-Module -Name "$PSScriptRoot\Private\VCATechManagerFunctions.psm1" -ErrorAction Stop
+    Import-Module -Name "$scriptDir\Private\VCATechManagerFunctions.psm1" -ErrorAction Stop
     Write-Log "Imported custom module: VCATechManagerFunctions"
 
     # New: Auto-update logic in the version check section
@@ -323,15 +355,15 @@ try {
             if ($updateChoice.ToLower() -eq 'y') {
                 try {
                     $scriptUrl = "https://raw.githubusercontent.com/marcky168/VCATechManager/main/VCATechManager.ps1"
-                    $newScriptPath = "$PSScriptRoot\VCATechManager_new.ps1"
+                    $newScriptPath = "$scriptDir\VCATechManager_new.ps1"
                     Invoke-WebRequest -Uri $scriptUrl -OutFile $newScriptPath -UseBasicParsing
-                    Move-Item -Path $newScriptPath -Destination $PSScriptRoot\VCATechManager.ps1 -Force
+                    Move-Item -Path $newScriptPath -Destination $scriptDir\VCATechManager.ps1 -Force
                     Write-Host "Updated to version $remoteVersion." -ForegroundColor Green
                     Write-Log "Updated script to version $remoteVersion"
                     $restartNow = Read-Host "Do you want to restart with the new version now? (y/n)"
                     if ($restartNow.ToLower() -eq 'y') {
                         Write-Host "Restarting with new version..." -ForegroundColor Green
-                        & $PSScriptRoot\VCATechManager.ps1
+                        & $scriptDir\VCATechManager.ps1
                         exit
                     } else {
                         Write-Host "Restart the script manually to use the new version." -ForegroundColor Yellow
@@ -343,25 +375,26 @@ try {
             }
         }
 
-        # New: Check for full repo update - only prompt if there are actual changes
-        if (Test-Path $cacheFile) {
-            try {
+        # New: Check for full repo update - always check and update cache
+        try {
+            # Fetch current tree
+            $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
+            $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
+            $commitData = ConvertFrom-Json $commitResponse.Content
+            $treeSha = $commitData.tree.sha
+            $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$treeSha?recursive=1"
+            $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
+            $tree = (ConvertFrom-Json $treeResponse.Content).tree
+
+            # Check for changes if cache exists
+            $hasChanges = $false
+            if (Test-Path $cacheFile) {
                 # Load cache
                 $jsonCache = Get-Content $cacheFile | ConvertFrom-Json
                 $localCache = @{}
                 $jsonCache.PSObject.Properties | ForEach-Object { $localCache[$_.Name] = $_.Value }
 
-                # Fetch current tree
-                $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
-                $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
-                $commitData = ConvertFrom-Json $commitResponse.Content
-                $treeSha = $commitData.commit.tree.sha
-                $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$treeSha?recursive=1"
-                $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
-                $tree = (ConvertFrom-Json $treeResponse.Content).tree
-
                 # Check for changes
-                $hasChanges = $false
                 foreach ($item in $tree) {
                     $path = $item.path
                     $remoteSha = $item.sha
@@ -371,17 +404,29 @@ try {
                         break
                     }
                 }
-
-                if ($hasChanges) {
-                    Write-Host "Full repo update available (new or changed files/folders). Updating automatically..." -ForegroundColor Yellow
-                    Write-Log "Full repo update detected - updating automatically"
-
-                    Sync-Repo
-                }
-            } catch {
-                Write-Host "Failed to check for repo changes: $($_.Exception.Message)" -ForegroundColor Yellow
-                Write-Log "Failed to check for repo changes: $($_.Exception.Message)"
+            } else {
+                # No cache exists, will create it below without syncing
+                $hasChanges = $false
             }
+
+            if ($hasChanges) {
+                Write-Host "Full repo update available (new or changed files/folders). Updating automatically..." -ForegroundColor Yellow
+                Write-Log "Full repo update detected - updating automatically"
+
+                Sync-Repo
+            }
+
+            # Update cache with current SHAs
+            $newCache = @{}
+            foreach ($item in $tree) {
+                if ($item.type -eq "blob") {
+                    $newCache[$item.path] = $item.sha
+                }
+            }
+            $newCache | ConvertTo-Json | Set-Content $cacheFile
+        } catch {
+            Write-Host "Failed to check for repo changes: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Log "Failed to check for repo changes: $($_.Exception.Message)"
         }
     } catch {
         Write-Host "Failed to check for updates: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -397,7 +442,7 @@ try {
         Write-Log "ActiveDirectory import error: $($_.Exception.Message)"
     }
     # Check and install PoshRSJob if missing
-    $poshLibPath = "$PSScriptRoot\Private\lib"
+    $poshLibPath = "$scriptDir\Private\lib"
     $poshVersionPath = "$poshLibPath\PoshRSJob\1.7.4.4"
     if (-not (Test-Path $poshVersionPath)) {
         Write-Host "PoshRSJob module not found at $poshVersionPath. Downloading and installing locally..." -ForegroundColor Yellow
@@ -422,29 +467,29 @@ try {
     }
     # Import required modules with try-catch
     try {
-        Import-Module -Name "$PSScriptRoot\Private\lib\PoshRSJob\1.7.4.4\PoshRSJob.psm1" -ErrorAction Stop
+        Import-Module -Name "$scriptDir\Private\lib\PoshRSJob\1.7.4.4\PoshRSJob.psm1" -ErrorAction Stop
         Write-Log "Imported module: PoshRSJob"
-        Import-Module -Name "$PSScriptRoot\Private\lib\PSTerminalServices" -ErrorAction Stop
+        Import-Module -Name "$scriptDir\Private\lib\PSTerminalServices" -ErrorAction Stop
         Write-Log "Imported module: PSTerminalServices"
-        Import-Module -Name "$PSScriptRoot\Private\lib\ImportExcel" -ErrorAction Stop  # Added for HOSPITALMASTER loading
+        Import-Module -Name "$scriptDir\Private\lib\ImportExcel" -ErrorAction Stop  # Added for HOSPITALMASTER loading
         Write-Log "Imported module: ImportExcel"
         # Suppress PnP PowerShell update check
         $env:PNPPOWERSHELL_UPDATECHECK = 'Off'
-        Import-Module -Name "$PSScriptRoot\Private\lib\PnP.PowerShell" -ErrorAction Stop  # Added for SharePoint access
+        Import-Module -Name "$scriptDir\Private\lib\PnP.PowerShell" -ErrorAction Stop  # Added for SharePoint access
         Write-Log "Imported module: PnP.PowerShell"
-        Import-Module -Name "$PSScriptRoot\Private\lib\Posh-SSH" -ErrorAction Stop  # Added for SSH functionality
+        Import-Module -Name "$scriptDir\Private\lib\Posh-SSH" -ErrorAction Stop  # Added for SSH functionality
         Write-Log "Imported module: Posh-SSH"
-        Import-Module -Name "$PSScriptRoot\Private\lib\VMware.VimAutomation.Sdk" -ErrorAction Stop  # Added for VMware functionality
+        Import-Module -Name "$scriptDir\Private\lib\VMware.VimAutomation.Sdk" -ErrorAction Stop  # Added for VMware functionality
         Write-Log "Imported module: VMware.VimAutomation.Sdk"
-        Import-Module -Name "$PSScriptRoot\Private\lib\VMware.VimAutomation.Common" -ErrorAction Stop  # Added for VMware functionality
+        Import-Module -Name "$scriptDir\Private\lib\VMware.VimAutomation.Common" -ErrorAction Stop  # Added for VMware functionality
         Write-Log "Imported module: VMware.VimAutomation.Common"
-        Import-Module -Name "$PSScriptRoot\Private\lib\VMware.Vim" -ErrorAction Stop  # Added for VMware functionality
+        Import-Module -Name "$scriptDir\Private\lib\VMware.Vim" -ErrorAction Stop  # Added for VMware functionality
         Write-Log "Imported module: VMware.Vim"
-        Import-Module -Name "$PSScriptRoot\Private\lib\VMware.VimAutomation.Cis.Core" -ErrorAction Stop  # Added for VMware functionality
+        Import-Module -Name "$scriptDir\Private\lib\VMware.VimAutomation.Cis.Core" -ErrorAction Stop  # Added for VMware functionality
         Write-Log "Imported module: VMware.VimAutomation.Cis.Core"
-        Import-Module -Name "$PSScriptRoot\Private\lib\VMware.VimAutomation.Core" -ErrorAction Stop  # Added for VMware functionality
+        Import-Module -Name "$scriptDir\Private\lib\VMware.VimAutomation.Core" -ErrorAction Stop  # Added for VMware functionality
         Write-Log "Imported module: VMware.VimAutomation.Core"
-        Import-Module -Name "$PSScriptRoot\Private\lib\Autoload" -Verbose
+        Import-Module -Name "$scriptDir\Private\lib\Autoload" -Verbose
         Write-Log "Imported module: Autoload"
         Write-Host "Required modules loaded successfully." -ForegroundColor Cyan  # Debug
         Write-Log "Required modules loaded successfully."
@@ -454,7 +499,7 @@ try {
     }
 
     # Dot-source functions from Private folder with try-catch
-    $privateFolder = "$PSScriptRoot\Private"
+    $privateFolder = "$scriptDir\Private"
     $privateFiles = Get-ChildItem -Path $privateFolder -Filter *.ps1 -ErrorAction SilentlyContinue
     Write-Host "Found private files: $($privateFiles | ForEach-Object { $_.Name })" -ForegroundColor Cyan  # Debug: List files found
     if (-not $privateFiles) {
@@ -499,7 +544,7 @@ try {
 
     # Load hospital master to memory (added for hospital info display)
     if (-not $HospitalMaster) {
-        $hospitalMasterPath = "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx"
+        $hospitalMasterPath = "$scriptDir\Private\csv\HOSPITALMASTER.xlsx"
         if (Test-Path $hospitalMasterPath) {
             try {
                 $HospitalMaster = Import-Excel -Path $hospitalMasterPath -WorksheetName Misc
@@ -1787,7 +1832,7 @@ $signatureHtml
                     # Launch VNC
                     $userIP = $SelectedUser.IPAddress
                     if ($userIP -and $userIP -ne "N/A") {
-                        Start-Process "$PSScriptRoot\Private\bin\vncviewer.exe" -ArgumentList "$userIP"
+                        Start-Process "$scriptDir\Private\bin\vncviewer.exe" -ArgumentList "$userIP"
                         Write-Host "Launching VNC for $($SelectedUser.UserName) on $userIP." -ForegroundColor Green
                         Write-Log "Launched VNC for $($SelectedUser.UserName) on $userIP"
                     } else {
@@ -1968,7 +2013,7 @@ $signatureHtml
                 if ($selectedSession) {
                     if ($launchChoice -eq 'v') {
                         # Launch VNC
-                        $vncPath = "$PSScriptRoot\Private\bin\vncviewer.exe"
+                        $vncPath = "$scriptDir\Private\bin\vncviewer.exe"
                         if (Test-Path $vncPath) {
                             $userIP = $selectedSession.ClientIP
                             if ($userIP -and $userIP -ne "N/A" -and $userIP -ne "") {
@@ -2093,7 +2138,7 @@ $signatureHtml
                 # New: Export prompt
                 $confirmExport = Read-Host "Export logon results to CSV? (y/n)"
                 if ($confirmExport.ToLower() -eq 'y') {
-                    $results | Export-Csv -Path "$PSScriptRoot\reports\AU$AU_logon_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv" -NoTypeInformation
+                    $results | Export-Csv -Path "$scriptDir\reports\AU$AU_logon_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv" -NoTypeInformation
                     Write-Host "Exported to reports folder." -ForegroundColor Green
                     Write-Log "Exported logon results for AU $AU"
                 }
@@ -2182,7 +2227,7 @@ $signatureHtml
         if (-not $EmailCredential) { $EmailCredential = Get-StoredCredential -Target vcaemailcreds }
 
         $HospitalMasterUrl = 'https://vca365.sharepoint.com/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx'
-        $CsvPath = "$PSScriptRoot\Private\csv"
+        $CsvPath = "$scriptDir\Private\csv"
         $HospitalMasterXlsx = "$CsvPath\HOSPITALMASTER.xlsx"
         $HospitalMasterXlsxNew = "$CsvPath\HOSPITALMASTER_new.xlsx"
 
@@ -2237,7 +2282,7 @@ $signatureHtml
         )
         try {
             Connect-PnPOnline -Url $SharePointUrl -UseWebLogin -ErrorAction Stop -WarningAction Ignore
-            Get-PnPFile -Url '/Documents/HOSPITALMASTER.xlsx' -Path "$PSScriptRoot\private\csv" -Filename 'HOSPITALMASTER_new.xlsx' -AsFile -ErrorAction Stop
+            Get-PnPFile -Url '/Documents/HOSPITALMASTER.xlsx' -Path "$scriptDir\private\csv" -Filename 'HOSPITALMASTER_new.xlsx' -AsFile -ErrorAction Stop
         }
         catch {
             throw $_.Exception.Message
@@ -2253,7 +2298,7 @@ $signatureHtml
         Write-Log "Debug: ADUserManagement group name '$groupName' for AU $AU"
 
         # Load admin credentials for password reset/unlock
-        $adminCredPath = "$PSScriptRoot\Private\vcaadmin.xml"
+        $adminCredPath = "$scriptDir\Private\vcaadmin.xml"
         if (Test-Path $adminCredPath) {
             try {
                 $adminCredential = Import-Clixml -Path $adminCredPath
@@ -2386,7 +2431,7 @@ $signatureHtml
         Write-Log "Starting Run Angry IP Scanner on DHCP Scope for AU $AU"
 
         # Load admin credentials for DHCP server access (required for permissions)
-        $adminCredPath = "$PSScriptRoot\Private\vcaadmin.xml"
+        $adminCredPath = "$scriptDir\Private\vcaadmin.xml"
         if (Test-Path $adminCredPath) {
             try {
                 $Credential = Import-Clixml -Path $adminCredPath
@@ -2448,11 +2493,11 @@ $signatureHtml
             Write-Host "Running Angry IP Scanner on range: $StartIP - $EndIP" -ForegroundColor Cyan
 
             # Path to Angry IP Scanner (updated to correct location)
-            $AngryIPPath = "$PSScriptRoot\Private\bin\ipscan-win64-3.9.0.exe"
+            $AngryIPPath = "$scriptDir\Private\bin\ipscan-win64-3.9.0.exe"
 
             if (Test-Path $AngryIPPath) {
                 # Run Angry IP with range and start scan
-                Start-Process -FilePath $AngryIPPath -ArgumentList "-s -f:range $StartIP $EndIP" -WorkingDirectory "$PSScriptRoot\Private\bin"
+                Start-Process -FilePath $AngryIPPath -ArgumentList "-s -f:range $StartIP $EndIP" -WorkingDirectory "$scriptDir\Private\bin"
                 Write-Log "Launched Angry IP Scanner for AU $AU on range $StartIP - $EndIP using server $DhcpServer"
             } else {
                 Write-Warning "Angry IP Scanner not found at $AngryIPPath. Please install or adjust path."
@@ -2945,7 +2990,7 @@ $signatureHtml
                     $updateSourcePath = "\\network\path\to\updates"  # Customize
                     $confirm = Read-Host "Confirm updating script from $updateSourcePath? (y/n)"
                     if ($confirm.ToLower() -eq 'y') {
-                        RoboCopy $updateSourcePath $PSScriptRoot * /E /PURGE /R:3 /W:5
+                        RoboCopy $updateSourcePath $scriptDir * /E /PURGE /R:3 /W:5
                         Write-Host "Update complete. Restarting script..." -ForegroundColor Green
                         & $scriptPath
                         $menuActive = $false
@@ -2955,7 +3000,7 @@ $signatureHtml
                 "11" {
                     # Update Admin Credentials
                     try {
-                        $credPath = "$PSScriptRoot\Private\vcaadmin.xml"         # Standardized path with uppercase 'Private'
+                        $credPath = "$scriptDir\Private\vcaadmin.xml"         # Standardized path with uppercase 'Private'
                         if (Test-Path $credPath) {
                             # Load existing credentials
                             $existingCred = Import-Clixml -Path $credPath -ErrorAction SilentlyContinue
@@ -3069,8 +3114,8 @@ $signatureHtml
                     # Update Hospital Master
                     Update-HospitalMaster
                     # Reload hospital master after update
-                    if (Test-Path "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx") {
-                        $HospitalMaster = Import-Excel -Path "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx" -WorksheetName Misc
+                    if (Test-Path "$scriptDir\Private\csv\HOSPITALMASTER.xlsx") {
+                        $HospitalMaster = Import-Excel -Path "$scriptDir\Private\csv\HOSPITALMASTER.xlsx" -WorksheetName Misc
                         Write-Host "Hospital master reloaded." -ForegroundColor Green
                     }
                 }
@@ -3151,7 +3196,7 @@ $signatureHtml
                 }
                 "999" {
                     # New Session
-                    Start-Process -FilePath "$PSScriptRoot\VCATechManager.cmd" -WorkingDirectory $PSScriptRoot
+                    Start-Process -FilePath "$scriptDir\VCATechManager.cmd" -WorkingDirectory $scriptDir
                 }
                 default {
                     Write-Host "Invalid choice. Please select 0-16, 19, 81-83, 999." -ForegroundColor Red
