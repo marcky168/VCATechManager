@@ -1,5 +1,5 @@
 # Ignore build/output directories
-bin/
+
 obj/
 debug/
 staging/
