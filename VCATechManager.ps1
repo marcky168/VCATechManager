@@ -282,7 +282,9 @@ try {
 
                         # Load local cache (SHA map)
                         if (Test-Path $cacheFile) {
-                            $localCache = Get-Content $cacheFile | ConvertFrom-Json
+                            $jsonCache = Get-Content $cacheFile | ConvertFrom-Json
+                            $localCache = @{}
+                            $jsonCache.PSObject.Properties | ForEach-Object { $localCache[$_.Name] = $_.Value }
                         } else {
                             $localCache = @{}
                         }
