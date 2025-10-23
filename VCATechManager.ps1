@@ -287,6 +287,21 @@ try {
                             $localCache = @{}
                         }
 
+                        # If cache is empty (first run), populate it with remote SHAs without downloading
+                        if (-not $localCache -or $localCache.Count -eq 0) {
+                            Write-Host "Cache is empty. Populating cache with remote SHAs. Run the update again to sync changed files." -ForegroundColor Yellow
+                            $newCache = @{}
+                            foreach ($item in $tree) {
+                                $path = $item.path
+                                $remoteSha = $item.sha
+                                $newCache[$path] = $remoteSha
+                            }
+                            $newCache | ConvertTo-Json | Set-Content $cacheFile
+                            Write-Host "Cache populated with remote SHAs. No files downloaded. Run again to sync." -ForegroundColor Green
+                            Write-Log "Cache populated with remote SHAs"
+                            return
+                        }
+
                         $newCache = @{}
 
                         # Process each item in tree
