@@ -266,7 +266,7 @@ try {
                         $commitData = ConvertFrom-Json $commitResponse.Content
                         Write-Host "Commit data type: $($commitData.GetType())" -ForegroundColor Cyan
                         Write-Host "Commit data properties: $($commitData.PSObject.Properties.Name -join ', ')" -ForegroundColor Cyan
-                        $treeSha = $commitData | Select-Object -ExpandProperty tree | Select-Object -ExpandProperty sha
+                        $treeSha = $commitData.commit.tree.sha
                         Write-Host "Tree SHA: '$treeSha'" -ForegroundColor Green
                         if (-not $treeSha) {
                             Write-Host "Failed to get tree SHA from response. Tree object: $($commitData.tree)" -ForegroundColor Red
