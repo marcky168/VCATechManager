@@ -319,12 +319,12 @@ try {
                                     Write-Host "Created folder: $path" -ForegroundColor Green
                                 }
                             } elseif ($item.type -eq "blob") {
-                                # Check if local file exists and SHA matches
+                                # Check if remote SHA changed from cached SHA
                                 $fullPath = "$PSScriptRoot\$path"
-                                $localSha = if (Test-Path $fullPath) { (Get-FileHash $fullPath -Algorithm SHA1).Hash.ToLower() } else { "" }
-                                if ($localSha -ne $remoteSha) {
+                                $cachedSha = $localCache[$path]
+                                if (-not $cachedSha -or $remoteSha -ne $cachedSha) {
                                     # Download file
-                                    $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+                                    $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/" + $path
                                     $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
                                     Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
                                     Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
