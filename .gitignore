@@ -1,5 +1,5 @@
 # Ignore build/output directories
-bin/
+
 obj/
 debug/
 staging/
@@ -40,3 +40,6 @@ desktop.ini
 *.nuget.props
 
 !.gitignore
+
+test_log.txt
+Changelog.txt
