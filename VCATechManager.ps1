@@ -207,7 +207,10 @@ try {
                         $repo = "VCATechManager"
                         $branch = "main"
                         $cacheFile = "$PSScriptRoot\repo_cache.json"
-                        $apiHeaders = @{ Accept = "application/vnd.github+json" }
+                        $apiHeaders = @{
+                            Accept = "application/vnd.github+json"
+                            "User-Agent" = "VCATechManager-Script/1.12"
+                        }
 
                         # Check if repo is private and prompt for PAT if needed
                         $patPath = "$PSScriptRoot\Private\github_pat.txt"
@@ -220,24 +223,36 @@ try {
                         function Invoke-GitHubApi {
                             param($url, $headers)
                             try {
+                                Write-Host "Attempting API call: $url" -ForegroundColor Cyan
                                 $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
                                 return $response
                             } catch {
-                                if ($_.Exception.Response.StatusCode -eq 404) {
-                                    # Repo might be private, prompt for PAT
+                                $statusCode = $_.Exception.Response.StatusCode
+                                Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
+                                if ($statusCode -eq 404) {
+                                    # Could be private repo or wrong URL
+                                    Write-Host "404 error detected. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
                                     if (-not $pat) {
-                                        Write-Host "Repository appears to be private. Please enter your GitHub Personal Access Token (PAT) with repo access." -ForegroundColor Yellow
-                                        $pat = Read-Host "GitHub PAT" -AsSecureString
-                                        $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
-                                        # Save PAT for future use
-                                        $pat | Set-Content $patPath
-                                        Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
+                                        Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) if the repo is private." -ForegroundColor Yellow
+                                        $pat = Read-Host "GitHub PAT (leave blank if repo is public)"
+                                        if ($pat) {
+                                            $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
+                                            # Save PAT for future use
+                                            $pat | Set-Content $patPath
+                                            Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
+                                        }
                                     }
-                                    # Retry with auth
-                                    $authHeaders = $headers.Clone()
-                                    $authHeaders["Authorization"] = "Bearer $pat"
-                                    $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
-                                    return $response
+                                    if ($pat) {
+                                        # Retry with auth
+                                        $authHeaders = $headers.Clone()
+                                        $authHeaders["Authorization"] = "Bearer $pat"
+                                        Write-Host "Retrying with authentication..." -ForegroundColor Cyan
+                                        $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
+                                        return $response
+                                    } else {
+                                        Write-Host "No PAT provided. If repo is private, please provide a PAT. Otherwise, check repo URL and branch." -ForegroundColor Yellow
+                                        throw
+                                    }
                                 } else {
                                     throw
                                 }
