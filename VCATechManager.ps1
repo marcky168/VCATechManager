@@ -207,16 +207,51 @@ try {
                         $repo = "VCATechManager"
                         $branch = "main"
                         $cacheFile = "$PSScriptRoot\repo_cache.json"
-                        $apiHeaders = @{ Accept = "application/vnd.github+json" }  # Add Authorization header if private: @{ Authorization = "Bearer YOUR_PAT" }
+                        $apiHeaders = @{ Accept = "application/vnd.github+json" }
+
+                        # Check if repo is private and prompt for PAT if needed
+                        $patPath = "$PSScriptRoot\Private\github_pat.txt"
+                        $pat = $null
+                        if (Test-Path $patPath) {
+                            $pat = Get-Content $patPath -Raw
+                        }
+
+                        # Function to make API call with optional auth
+                        function Invoke-GitHubApi {
+                            param($url, $headers)
+                            try {
+                                $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
+                                return $response
+                            } catch {
+                                if ($_.Exception.Response.StatusCode -eq 404) {
+                                    # Repo might be private, prompt for PAT
+                                    if (-not $pat) {
+                                        Write-Host "Repository appears to be private. Please enter your GitHub Personal Access Token (PAT) with repo access." -ForegroundColor Yellow
+                                        $pat = Read-Host "GitHub PAT" -AsSecureString
+                                        $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
+                                        # Save PAT for future use
+                                        $pat | Set-Content $patPath
+                                        Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
+                                    }
+                                    # Retry with auth
+                                    $authHeaders = $headers.Clone()
+                                    $authHeaders["Authorization"] = "Bearer $pat"
+                                    $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
+                                    return $response
+                                } else {
+                                    throw
+                                }
+                            }
+                        }
 
                         # Get latest commit SHA
                         $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
-                        $commitResponse = Invoke-WebRequest -Uri $commitUrl -Headers $apiHeaders -UseBasicParsing
+                        $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
                         $commitSha = (ConvertFrom-Json $commitResponse.Content).sha
 
                         # Get recursive tree
                         $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$commitSha?recursive=1"
-                        $treeResponse = Invoke-WebRequest -Uri $treeUrl -Headers $apiHeaders -UseBasicParsing
+                        $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
                         $tree = (ConvertFrom-Json $treeResponse.Content).tree
 
                         # Load local cache (SHA map)
@@ -249,7 +284,8 @@ try {
                                 if ($localSha -ne $remoteSha) {
                                     # Download file
                                     $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
-                                    Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -UseBasicParsing
+                                    $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
+                                    Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
                                     Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
                                     Write-Log "Downloaded/Updated file: $path"
                                 }
