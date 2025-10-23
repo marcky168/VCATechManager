@@ -1,0 +1,16 @@
+# Ignore log files
+logs/
+*.log
+
+# Ignore credential files
+Private/vcaadcred.xml
+Private/vcaadmin.xml
+
+
+# Ignore temporary files
+*.tmp
+*.temp
+
+# Windows specific
+Thumbs.db
+Desktop.ini
