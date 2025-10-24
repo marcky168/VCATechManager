@@ -343,6 +343,17 @@ try {
                             }
                         }
 
+                        # Handle deletions: Remove local files not in remote tree
+                        $localFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -File | ForEach-Object { $_.FullName -replace [regex]::Escape($PSScriptRoot + '\'), '' }
+                        foreach ($localPath in $localFiles) {
+                            if ($localPath -notlike 'logs\*' -and $localPath -notlike 'Private\*' -and -not $newCache.ContainsKey($localPath)) {
+                                $fullLocalPath = "$PSScriptRoot\$localPath"
+                                Remove-Item -Path $fullLocalPath -Force
+                                Write-Host "Deleted local file not in repo: $localPath" -ForegroundColor Yellow
+                                Write-Log "Deleted local file: $localPath"
+                            }
+                        }
+
                         # Save new cache
                         $newCache | ConvertTo-Json | Set-Content $cacheFile
                         Write-Host "Repo sync complete." -ForegroundColor Green
