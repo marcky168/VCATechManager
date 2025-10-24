@@ -164,6 +164,164 @@ function Test-ADCredentials {
     }
 }
 
+function Sync-Repo {
+    $owner = "marcky168"
+    $repo = "VCATechManager"
+    $branch = "main"  # Changed from "HEAD" for reliability—use your default branch
+    $cacheFile = "$PSScriptRoot\repo_cache.json"
+    $lastTreeShaFile = "$PSScriptRoot\last_tree_sha.txt"  # New: For quick change detection
+    $apiHeaders = @{
+        Accept = "application/vnd.github+json"
+        "User-Agent" = "VCATechManager-Script/1.13"  # Bumped to match your version
+    }
+
+    # Check if repo is private and prompt for PAT if needed
+    $patPath = "$PSScriptRoot\Private\github_pat.txt"
+    $pat = $null
+    if (Test-Path $patPath) {
+        $pat = Get-Content $patPath -Raw
+    }
+
+    # Function to make API call with optional auth and retries
+    function Invoke-GitHubApi {
+        param($url, $headers, $retries = 3)
+        for ($i = 1; $i -le $retries; $i++) {
+            try {
+                Write-Host "Attempting API call (try $i/$retries): $url" -ForegroundColor Cyan
+                $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
+                return $response
+            } catch {
+                $statusCode = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { $null }
+                Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
+                if ($statusCode -eq 404) {
+                    # Handle private repo or bad URL
+                    if (-not $pat) {
+                        Write-Host "404 detected—repo may be private. Enter GitHub PAT (leave blank if public):" -ForegroundColor Yellow
+                        $securePat = Read-Host -AsSecureString
+                        if ($securePat.Length -gt 0) {
+                            $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePat))
+                            $pat | Set-Content $patPath
+                            Write-Host "PAT saved for future use." -ForegroundColor Green
+                        }
+                    }
+                    if ($pat) {
+                        $authHeaders = $headers.Clone()
+                        $authHeaders["Authorization"] = "Bearer $pat"
+                        Write-Host "Retrying with auth..." -ForegroundColor Cyan
+                        $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
+                        return $response
+                    } else {
+                        throw "No PAT provided for private repo."
+                    }
+                } elseif ($i -lt $retries) {
+                    Write-Host "Retrying in 5 seconds..." -ForegroundColor Yellow
+                    Start-Sleep -Seconds 5
+                } else {
+                    throw
+                }
+            }
+        }
+    }
+
+    # Get latest commit to check root tree SHA (lightweight)
+    $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
+    $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
+    $commitData = ConvertFrom-Json $commitResponse.Content
+    $remoteTreeSha = $commitData.commit.tree.sha
+    Write-Host "Remote tree SHA: $remoteTreeSha" -ForegroundColor Green
+
+    # Load local last tree SHA
+    $localTreeSha = if (Test-Path $lastTreeShaFile) { Get-Content $lastTreeShaFile -Raw } else { "" }
+
+    if ($remoteTreeSha -eq $localTreeSha) {
+        Write-Host "No changes detected in repo (tree SHAs match). Skipping sync." -ForegroundColor Green
+        Write-Log "No repo changes—sync skipped"
+        return
+    } else {
+        Write-Host "Changes detected (remote SHA: $remoteTreeSha, local: $localTreeSha). Proceeding with full sync..." -ForegroundColor Yellow
+    }
+
+    # Get recursive tree only if changes detected
+    $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$remoteTreeSha?recursive=1"
+    $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
+    $tree = (ConvertFrom-Json $treeResponse.Content).tree
+
+    # Load local cache (SHA map)
+    if (Test-Path $cacheFile) {
+        $localCache = Get-Content $cacheFile | ConvertFrom-Json
+    } else {
+        $localCache = @{}
+    }
+
+    # If cache empty (first run), populate without downloading
+    if ($localCache.Count -eq 0) {
+        Write-Host "Cache empty. Populating with remote SHAs (no downloads). Run again to sync if needed." -ForegroundColor Yellow
+        $newCache = @{}
+        foreach ($item in $tree) {
+            $newCache[$item.path] = $item.sha
+        }
+        $newCache | ConvertTo-Json | Set-Content $cacheFile
+        $remoteTreeSha | Set-Content $lastTreeShaFile  # Save initial tree SHA
+        Write-Host "Cache populated. No files downloaded." -ForegroundColor Green
+        Write-Log "Initial cache populated"
+        return
+    }
+
+    $newCache = @{}
+
+    # Process tree items
+    foreach ($item in $tree) {
+        $path = $item.path
+        $remoteSha = $item.sha
+        $newCache[$path] = $remoteSha
+
+        if ($item.type -eq "tree") {
+            $fullPath = "$PSScriptRoot\$path"
+            if (-not (Test-Path $fullPath)) {
+                New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
+                Write-Host "Created folder: $path" -ForegroundColor Green
+            }
+        } elseif ($item.type -eq "blob") {
+            $fullPath = "$PSScriptRoot\$path"
+            $localSha = if (Test-Path $fullPath) {
+                $content = [System.IO.File]::ReadAllBytes($fullPath)
+                $prefix = [System.Text.Encoding]::UTF8.GetBytes("blob $($content.Length)`0")
+                $data = $prefix + $content
+                $hasher = [System.Security.Cryptography.SHA1]::Create()
+                $hashBytes = $hasher.ComputeHash($data)
+                [BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
+            } else { "" }
+
+            if ($localSha -ne $remoteSha) {
+                $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+                $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
+                Write-Host "Downloaded/Updated: $path" -ForegroundColor Green
+                Write-Log "Downloaded/Updated: $path"
+            } else {
+                Write-Host "Unchanged (skipping): $path" -ForegroundColor Gray
+            }
+        }
+    }
+
+    # Handle deletions (exclude sensitive locals)
+    $localFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -File | ForEach-Object { $_.FullName -replace [regex]::Escape("$PSScriptRoot\"), '' }
+    foreach ($localPath in $localFiles) {
+        if ($localPath -notlike 'logs\*' -and $localPath -notlike 'Private\*' -and $localPath -ne 'repo_cache.json' -and $localPath -ne 'last_tree_sha.txt' -and -not $newCache.ContainsKey($localPath)) {
+            $fullLocalPath = "$PSScriptRoot\$localPath"
+            Remove-Item -Path $fullLocalPath -Force
+            Write-Host "Deleted (not in repo): $localPath" -ForegroundColor Yellow
+            Write-Log "Deleted: $localPath"
+        }
+    }
+
+    # Save updates
+    $newCache | ConvertTo-Json | Set-Content $cacheFile
+    $remoteTreeSha | Set-Content $lastTreeShaFile
+    Write-Host "Repo sync complete. Updated tree SHA saved." -ForegroundColor Green
+    Write-Log "Repo sync complete"
+}
+
 # Set global script root for use in functions
 $global:ScriptRoot = $PSScriptRoot
 
@@ -197,164 +355,6 @@ try {
         # Check for repo updates (replaces full_update.txt)
         Write-Host "Checking for repo updates..." -ForegroundColor Yellow
         try {
-            function Sync-Repo {
-                $owner = "marcky168"
-                $repo = "VCATechManager"
-                $branch = "main"  # Changed from "HEAD" for reliability—use your default branch
-                $cacheFile = "$PSScriptRoot\repo_cache.json"
-                $lastTreeShaFile = "$PSScriptRoot\last_tree_sha.txt"  # New: For quick change detection
-                $apiHeaders = @{
-                    Accept = "application/vnd.github+json"
-                    "User-Agent" = "VCATechManager-Script/1.13"  # Bumped to match your version
-                }
-
-                # Check if repo is private and prompt for PAT if needed
-                $patPath = "$PSScriptRoot\Private\github_pat.txt"
-                $pat = $null
-                if (Test-Path $patPath) {
-                    $pat = Get-Content $patPath -Raw
-                }
-
-                # Function to make API call with optional auth and retries
-                function Invoke-GitHubApi {
-                    param($url, $headers, $retries = 3)
-                    for ($i = 1; $i -le $retries; $i++) {
-                        try {
-                            Write-Host "Attempting API call (try $i/$retries): $url" -ForegroundColor Cyan
-                            $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
-                            return $response
-                        } catch {
-                            $statusCode = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { $null }
-                            Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
-                            if ($statusCode -eq 404) {
-                                # Handle private repo or bad URL
-                                if (-not $pat) {
-                                    Write-Host "404 detected—repo may be private. Enter GitHub PAT (leave blank if public):" -ForegroundColor Yellow
-                                    $securePat = Read-Host -AsSecureString
-                                    if ($securePat.Length -gt 0) {
-                                        $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePat))
-                                        $pat | Set-Content $patPath
-                                        Write-Host "PAT saved for future use." -ForegroundColor Green
-                                    }
-                                }
-                                if ($pat) {
-                                    $authHeaders = $headers.Clone()
-                                    $authHeaders["Authorization"] = "Bearer $pat"
-                                    Write-Host "Retrying with auth..." -ForegroundColor Cyan
-                                    $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
-                                    return $response
-                                } else {
-                                    throw "No PAT provided for private repo."
-                                }
-                            } elseif ($i -lt $retries) {
-                                Write-Host "Retrying in 5 seconds..." -ForegroundColor Yellow
-                                Start-Sleep -Seconds 5
-                            } else {
-                                throw
-                            }
-                        }
-                    }
-                }
-
-                # Get latest commit to check root tree SHA (lightweight)
-                $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
-                $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
-                $commitData = ConvertFrom-Json $commitResponse.Content
-                $remoteTreeSha = $commitData.commit.tree.sha
-                Write-Host "Remote tree SHA: $remoteTreeSha" -ForegroundColor Green
-
-                # Load local last tree SHA
-                $localTreeSha = if (Test-Path $lastTreeShaFile) { Get-Content $lastTreeShaFile -Raw } else { "" }
-
-                if ($remoteTreeSha -eq $localTreeSha) {
-                    Write-Host "No changes detected in repo (tree SHAs match). Skipping sync." -ForegroundColor Green
-                    Write-Log "No repo changes—sync skipped"
-                    return
-                } else {
-                    Write-Host "Changes detected (remote SHA: $remoteTreeSha, local: $localTreeSha). Proceeding with full sync..." -ForegroundColor Yellow
-                }
-
-                # Get recursive tree only if changes detected
-                $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$remoteTreeSha?recursive=1"
-                $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
-                $tree = (ConvertFrom-Json $treeResponse.Content).tree
-
-                # Load local cache (SHA map)
-                if (Test-Path $cacheFile) {
-                    $localCache = Get-Content $cacheFile | ConvertFrom-Json
-                } else {
-                    $localCache = @{}
-                }
-
-                # If cache empty (first run), populate without downloading
-                if ($localCache.Count -eq 0) {
-                    Write-Host "Cache empty. Populating with remote SHAs (no downloads). Run again to sync if needed." -ForegroundColor Yellow
-                    $newCache = @{}
-                    foreach ($item in $tree) {
-                        $newCache[$item.path] = $item.sha
-                    }
-                    $newCache | ConvertTo-Json | Set-Content $cacheFile
-                    $remoteTreeSha | Set-Content $lastTreeShaFile  # Save initial tree SHA
-                    Write-Host "Cache populated. No files downloaded." -ForegroundColor Green
-                    Write-Log "Initial cache populated"
-                    return
-                }
-
-                $newCache = @{}
-
-                # Process tree items
-                foreach ($item in $tree) {
-                    $path = $item.path
-                    $remoteSha = $item.sha
-                    $newCache[$path] = $remoteSha
-
-                    if ($item.type -eq "tree") {
-                        $fullPath = "$PSScriptRoot\$path"
-                        if (-not (Test-Path $fullPath)) {
-                            New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
-                            Write-Host "Created folder: $path" -ForegroundColor Green
-                        }
-                    } elseif ($item.type -eq "blob") {
-                        $fullPath = "$PSScriptRoot\$path"
-                        $localSha = if (Test-Path $fullPath) {
-                            $content = [System.IO.File]::ReadAllBytes($fullPath)
-                            $prefix = [System.Text.Encoding]::UTF8.GetBytes("blob $($content.Length)`0")
-                            $data = $prefix + $content
-                            $hasher = [System.Security.Cryptography.SHA1]::Create()
-                            $hashBytes = $hasher.ComputeHash($data)
-                            [BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
-                        } else { "" }
-
-                        if ($localSha -ne $remoteSha) {
-                            $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
-                            $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
-                            Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
-                            Write-Host "Downloaded/Updated: $path" -ForegroundColor Green
-                            Write-Log "Downloaded/Updated: $path"
-                        } else {
-                            Write-Host "Unchanged (skipping): $path" -ForegroundColor Gray
-                        }
-                    }
-                }
-
-                # Handle deletions (exclude sensitive locals)
-                $localFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -File | ForEach-Object { $_.FullName -replace [regex]::Escape("$PSScriptRoot\"), '' }
-                foreach ($localPath in $localFiles) {
-                    if ($localPath -notlike 'logs\*' -and $localPath -notlike 'Private\*' -and $localPath -ne 'repo_cache.json' -and $localPath -ne 'last_tree_sha.txt' -and -not $newCache.ContainsKey($localPath)) {
-                        $fullLocalPath = "$PSScriptRoot\$localPath"
-                        Remove-Item -Path $fullLocalPath -Force
-                        Write-Host "Deleted (not in repo): $localPath" -ForegroundColor Yellow
-                        Write-Log "Deleted: $localPath"
-                    }
-                }
-
-                # Save updates
-                $newCache | ConvertTo-Json | Set-Content $cacheFile
-                $remoteTreeSha | Set-Content $lastTreeShaFile
-                Write-Host "Repo sync complete. Updated tree SHA saved." -ForegroundColor Green
-                Write-Log "Repo sync complete"
-            }
-
             Sync-Repo
         } catch {
             Write-Host "Repo update failed: $($_.Exception.Message)" -ForegroundColor Red
