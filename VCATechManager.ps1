@@ -227,41 +227,42 @@ try {
                         # Function to make API call with optional auth
                         function Invoke-GitHubApi {
                             param($url, $headers)
-                            Write-Host "Attempting API call: $url" -ForegroundColor Cyan
-                            $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -SkipHttpErrorCheck
-                            if ($response.StatusCode -eq 200) {
+                            try {
+                                Write-Host "Attempting API call: $url" -ForegroundColor Cyan
+                                $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
                                 return $response
-                            } elseif ($response.StatusCode -eq 404) {
-                                Write-Host "404 error detected for $url. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
-                                if (-not $pat) {
-                                    Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) if the repo is private." -ForegroundColor Yellow
-                                    $pat = Read-Host "GitHub PAT (leave blank if repo is public)"
-                                    if ($pat) {
-                                        $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
-                                        # Save PAT for future use
-                                        $pat | Set-Content $patPath
-                                        Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
+                            } catch {
+                                $statusCode = $_.Exception.Response.StatusCode
+                                $errorMessage = $_.Exception.Message
+                                Write-Host "statusCode: $statusCode, errorMessage contains 404: $($errorMessage -like '*404*')" -ForegroundColor Yellow
+                                Write-Host "API call failed: $url - Status: $statusCode - $errorMessage" -ForegroundColor Red
+                                if ($statusCode -eq 404 -or $errorMessage -like "*404*") {
+                                    # Could be private repo or wrong URL
+                                    Write-Host "404 error detected. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
+                                    if (-not $pat) {
+                                        Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) if the repo is private." -ForegroundColor Yellow
+                                        $pat = Read-Host "GitHub PAT (leave blank if repo is public)"
+                                        if ($pat) {
+                                            $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
+                                            # Save PAT for future use
+                                            $pat | Set-Content $patPath
+                                            Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
+                                        }
                                     }
-                                }
-                                if ($pat) {
-                                    # Retry with auth
-                                    $authHeaders = $headers.Clone()
-                                    $authHeaders["Authorization"] = "Bearer $pat"
-                                    Write-Host "Retrying with authentication..." -ForegroundColor Cyan
-                                    $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -SkipHttpErrorCheck
-                                    if ($response.StatusCode -eq 200) {
+                                    if ($pat) {
+                                        # Retry with auth
+                                        $authHeaders = $headers.Clone()
+                                        $authHeaders["Authorization"] = "Bearer $pat"
+                                        Write-Host "Retrying with authentication..." -ForegroundColor Cyan
+                                        $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
                                         return $response
                                     } else {
-                                        Write-Host "Authentication failed. Status: $($response.StatusCode)" -ForegroundColor Red
-                                        throw "API call failed with status $($response.StatusCode)"
+                                        Write-Host "No PAT provided. If repo is private, please provide a PAT. Otherwise, check repo URL and branch." -ForegroundColor Yellow
+                                        throw
                                     }
                                 } else {
-                                    Write-Host "No PAT provided. If repo is private, please provide a PAT. Otherwise, check repo URL and branch." -ForegroundColor Yellow
-                                    throw "API call failed with 404"
+                                    throw
                                 }
-                            } else {
-                                Write-Host "API call failed with status $($response.StatusCode): $($response.Content)" -ForegroundColor Red
-                                throw "API call failed with status $($response.StatusCode)"
                             }
                         }
 
