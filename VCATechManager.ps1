@@ -233,8 +233,9 @@ try {
                                 return $response
                             } catch {
                                 $statusCode = $_.Exception.Response.StatusCode
-                                Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
-                                if ($statusCode -eq 404) {
+                                $errorMessage = $_.Exception.Message
+                                Write-Host "API call failed: $url - Status: $statusCode - $errorMessage" -ForegroundColor Red
+                                if ($statusCode -eq 404 -or $errorMessage -like "*404*") {
                                     # Could be private repo or wrong URL
                                     Write-Host "404 error detected. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
                                     if (-not $pat) {
