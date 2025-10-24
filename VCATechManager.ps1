@@ -164,6 +164,47 @@ function Test-ADCredentials {
     }
 }
 
+# Function to make API call with optional auth and retries
+function Invoke-GitHubApi {
+    param($url, $headers, $pat, $patPath, $retries = 3)
+    for ($i = 1; $i -le $retries; $i++) {
+        try {
+            Write-Host "Attempting API call (try $i/$retries): $url" -ForegroundColor Cyan
+            $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
+            return $response
+        } catch {
+            $statusCode = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { $null }
+            Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
+            if ($statusCode -eq 404) {
+                if (-not $pat) {
+                    Write-Host "404 detected—repo may be private. Enter GitHub PAT (leave blank if public):" -ForegroundColor Yellow
+                    $patInput = Read-Host
+                    if ($patInput) {
+                        $securePat = ConvertTo-SecureString $patInput -AsPlainText -Force
+                        $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePat))
+                        $pat | Set-Content $patPath
+                        Write-Host "PAT saved for future use." -ForegroundColor Green
+                    }
+                }
+                if ($pat) {
+                    $authHeaders = $headers.Clone()
+                    $authHeaders["Authorization"] = "Bearer $pat"
+                    Write-Host "Retrying with auth..." -ForegroundColor Cyan
+                    $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
+                    return $response
+                } else {
+                    throw "No PAT provided for private repo."
+                }
+            } elseif ($i -lt $retries) {
+                Write-Host "Retrying in 5 seconds..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 5
+            } else {
+                throw
+            }
+        }
+    }
+}
+
 function Sync-Repo {
     $owner = "marcky168"
     $repo = "VCATechManager"
@@ -182,51 +223,10 @@ function Sync-Repo {
         $pat = Get-Content $patPath -Raw
     }
 
-    # Function to make API call with optional auth and retries
-    function Invoke-GitHubApi {
-        param($url, $headers, $retries = 3)
-        for ($i = 1; $i -le $retries; $i++) {
-            try {
-                Write-Host "Attempting API call (try $i/$retries): $url" -ForegroundColor Cyan
-                $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
-                return $response
-            } catch {
-                $statusCode = if ($_.Exception.Response) { $_.Exception.Response.StatusCode.Value__ } else { $null }
-                Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
-                if ($statusCode -eq 404) {
-                    # Handle private repo or bad URL
-                    if (-not $pat) {
-                        Write-Host "404 detected—repo may be private. Enter GitHub PAT (leave blank if public):" -ForegroundColor Yellow
-                        $securePat = Read-Host -AsSecureString
-                        if ($securePat.Length -gt 0) {
-                            $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePat))
-                            $pat | Set-Content $patPath
-                            Write-Host "PAT saved for future use." -ForegroundColor Green
-                        }
-                    }
-                    if ($pat) {
-                        $authHeaders = $headers.Clone()
-                        $authHeaders["Authorization"] = "Bearer $pat"
-                        Write-Host "Retrying with auth..." -ForegroundColor Cyan
-                        $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
-                        return $response
-                    } else {
-                        throw "No PAT provided for private repo."
-                    }
-                } elseif ($i -lt $retries) {
-                    Write-Host "Retrying in 5 seconds..." -ForegroundColor Yellow
-                    Start-Sleep -Seconds 5
-                } else {
-                    throw
-                }
-            }
-        }
-    }
-
     # Get latest commit to check root tree SHA (lightweight)
     Write-Host "Debug: Owner='$owner', Repo='$repo', Branch='$branch'" -ForegroundColor Cyan
     $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
-    $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
+    $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders -pat $pat -patPath $patPath
     $commitData = ConvertFrom-Json $commitResponse.Content
     $remoteTreeSha = $commitData.commit.tree.sha
     Write-Host "Remote tree SHA: $remoteTreeSha" -ForegroundColor Green
@@ -244,7 +244,7 @@ function Sync-Repo {
 
     # Get recursive tree only if changes detected
     $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$remoteTreeSha?recursive=1"
-    $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
+    $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders -pat $pat -patPath $patPath
     $tree = (ConvertFrom-Json $treeResponse.Content).tree
 
     # Load local cache (SHA map)
