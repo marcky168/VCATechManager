@@ -210,7 +210,7 @@ try {
                     function Sync-Repo {
                         $owner = "marcky168"
                         $repo = "VCATechManager"
-                        $branch = "HEAD"
+                        $branch = "main"
                         $cacheFile = "$PSScriptRoot\repo_cache.json"
                         $apiHeaders = @{
                             Accept = "application/vnd.github+json"
@@ -298,49 +298,55 @@ try {
 
                         $newCache = @{}
 
-                        # Fetch recursive tree
-                        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$treeSha?recursive=1"
-                        Write-Host "Fetching tree: $treeUrl" -ForegroundColor Cyan
-                        $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
-                        $treeData = ConvertFrom-Json $treeResponse.Content
-                        $tree = $treeData.tree
-                        Write-Host "Tree has $($tree.Count) items" -ForegroundColor Cyan
+                        # Function to process a tree recursively
+                        function Process-Tree {
+                            param($treeSha, $currentPath)
+                            $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/" + $treeSha
+                            Write-Host "Fetching tree: $treeUrl" -ForegroundColor Cyan
+                            $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
+                            $tree = (ConvertFrom-Json $treeResponse.Content).tree
 
-                        foreach ($item in $tree) {
-                            $path = $item.path
-                            $remoteSha = $item.sha
+                            foreach ($item in $tree) {
+                                $path = if ($currentPath) { "$currentPath\$($item.path)" } else { $item.path }
+                                $remoteSha = $item.sha
 
-                            $newCache[$path] = $remoteSha
+                                $newCache[$path] = $remoteSha
 
-                            if ($item.type -eq "tree") {
-                                # Create directory if missing
-                                $fullPath = "$PSScriptRoot\$path"
-                                if (-not (Test-Path $fullPath)) {
-                                    New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
-                                    Write-Host "Created folder: $path" -ForegroundColor Green
-                                }
-                            } elseif ($item.type -eq "blob") {
-                                # Check if local file exists and SHA matches
-                                $fullPath = "$PSScriptRoot\$path"
-                                $localSha = if (Test-Path $fullPath) { (Get-FileHash $fullPath -Algorithm SHA1).Hash.ToLower() } else { "" }
-                                if ($localSha -ne $remoteSha) {
-                                    if (-not $cacheOnly) {
-                                        # Download file
-                                        $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
-                                        $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
-                                        Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
-                                        Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
-                                        Write-Log "Downloaded/Updated file: $path"
-                                    } else {
-                                        Write-Host "Would download/update file: $path (local SHA: $localSha, remote SHA: $remoteSha)" -ForegroundColor Yellow
+                                if ($item.type -eq "tree") {
+                                    # Create directory if missing
+                                    $fullPath = "$PSScriptRoot\$path"
+                                    if (-not (Test-Path $fullPath)) {
+                                        New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
+                                        Write-Host "Created folder: $path" -ForegroundColor Green
                                     }
-                                } else {
-                                    if ($cacheOnly) {
-                                        Write-Host "File matches remote: $path" -ForegroundColor Green
+                                    # Recurse into subdirectory
+                                    Process-Tree -treeSha $remoteSha -currentPath $path
+                                } elseif ($item.type -eq "blob") {
+                                    # Check if local file exists and SHA matches
+                                    $fullPath = "$PSScriptRoot\$path"
+                                    $localSha = if (Test-Path $fullPath) { (Get-FileHash $fullPath -Algorithm SHA1).Hash.ToLower() } else { "" }
+                                    if ($localSha -ne $remoteSha) {
+                                        if (-not $cacheOnly) {
+                                            # Download file
+                                            $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+                                            $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
+                                            Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
+                                            Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
+                                            Write-Log "Downloaded/Updated file: $path"
+                                        } else {
+                                            Write-Host "Would download/update file: $path (local SHA: $localSha, remote SHA: $remoteSha)" -ForegroundColor Yellow
+                                        }
+                                    } else {
+                                        if ($cacheOnly) {
+                                            Write-Host "File matches remote: $path" -ForegroundColor Green
+                                        }
                                     }
                                 }
                             }
                         }
+
+                        # Start processing from root tree
+                        Process-Tree -treeSha $treeSha -currentPath ""
 
                         # Save new cache
                         $newCache | ConvertTo-Json | Set-Content $cacheFile
