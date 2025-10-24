@@ -232,9 +232,13 @@ try {
                                 $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
                                 return $response
                             } catch {
-                                $statusCode = $_.Exception.Response.StatusCode
+                                $statusCode = $null
                                 $errorMessage = $_.Exception.Message
-                                Write-Host "statusCode: $statusCode, errorMessage contains 404: $($errorMessage -like '*404*')" -ForegroundColor Yellow
+                                if ($_.Exception.Response) {
+                                    $statusCode = $_.Exception.Response.StatusCode
+                                }
+                                Write-Log "API error: StatusCode=$statusCode, Message=$errorMessage"
+                                Write-Host "Entered catch block. statusCode: $statusCode, errorMessage: $errorMessage" -ForegroundColor Yellow
                                 Write-Host "API call failed: $url - Status: $statusCode - $errorMessage" -ForegroundColor Red
                                 if ($statusCode -eq 404 -or $errorMessage -like "*404*" -or $statusCode -eq 403 -or $errorMessage -like "*403*" -or $statusCode -eq [System.Net.HttpStatusCode]::Forbidden -or $statusCode -eq [System.Net.HttpStatusCode]::NotFound) {
                                     # Could be private repo, wrong URL, or rate limit exceeded
