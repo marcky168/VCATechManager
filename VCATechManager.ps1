@@ -747,7 +747,7 @@ try {
             } else {
                 $fuseType = "Physical Fuse"
             }
-            Write-Host "`nFuse Device IP ($($fuseType) from nslookup on $($fuseHostname)): " -ForegroundColor Green -NoNewline
+            Write-Host ("`nFuse Device IP ({0} from nslookup on {1}): " -f $fuseType, $fuseHostname) -ForegroundColor Green -NoNewline
             Write-Host "$fuseIp" -ForegroundColor Yellow
             $pingResult = Test-Connection -ComputerName $fuseIp -Count 4 -ErrorAction SilentlyContinue
             if ($pingResult) {
@@ -1479,19 +1479,17 @@ $signatureHtml
 
             # Build error details string
             if ($selectedError) {
-                $errorDetails = @"
-Selected Error Details:
-Server: $($selectedError.PSComputerName)
-Time Created: $($selectedError.TimeCreated)
-Event ID: $($selectedError.EventID)
-Record ID: $($selectedError.RecordID)
-Machine Name: $($selectedError.MachineName)
-Thread Identity: $($selectedError.ThreadIdentity)
-Windows Identity: $($selectedError.WindowsIdentity)
-Exception Type: $($selectedError.ExceptionType)
-Message Error: $($selectedError.MessagError)
-Full Message: $($selectedError.FullMessage)
-"@
+                $errorDetails = "Selected Error Details:`n" +
+                    "Server: $($selectedError.PSComputerName)`n" +
+                    "Time Created: $($selectedError.TimeCreated)`n" +
+                    "Event ID: $($selectedError.EventID)`n" +
+                    "Record ID: $($selectedError.RecordID)`n" +
+                    "Machine Name: $($selectedError.MachineName)`n" +
+                    "Thread Identity: $($selectedError.ThreadIdentity)`n" +
+                    "Windows Identity: $($selectedError.WindowsIdentity)`n" +
+                    "Exception Type: $($selectedError.ExceptionType)`n" +
+                    "Message Error: $($selectedError.MessagError)`n" +
+                    "Full Message: $($selectedError.FullMessage)"
             } else {
                 $errorDetails = "No specific error selected from the grids."
             }
@@ -1541,7 +1539,7 @@ Full Message: $($selectedError.FullMessage)
                             '.gif' { 'image/gif' }
                             default { 'image/png' }
                         }
-                        $signatureHtml = $signatureHtml -replace "cid:$cid", "data:$mime;base64,$base64"
+                        $signatureHtml = $signatureHtml -replace "cid:$cid", ("data:{0};base64,{1}" -f $mime, $base64)
                     } catch {
                         # Ignore attachment processing errors
                     }
