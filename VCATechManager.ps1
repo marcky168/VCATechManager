@@ -241,6 +241,7 @@ try {
                                     Write-Host "$statusCode error detected. This could mean the repository is private, the branch doesn't exist, the repo path is incorrect, or API rate limit exceeded." -ForegroundColor Yellow
                                     if (-not $pat) {
                                         Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) to increase rate limits or access private repos." -ForegroundColor Yellow
+                                        Write-Host "Prompting for PAT now..." -ForegroundColor Cyan
                                         $pat = Read-Host "GitHub PAT (leave blank to skip)"
                                         if ($pat) {
                                             $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
