@@ -1,4 +1,5 @@
 # Combined PowerShell Script with Menu Options
+# Test update detection - minor changes.
 
 # Modification Log:
 # 2025-10-10: Enhanced option 1 with ARP table viewer using Get-NetNeighbor via Invoke-Command on selected servers. Author: Grok Code Agent.
@@ -6,7 +7,7 @@
 # 2025-01-01: Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck. Added try-catch, Write-Log, Write-Progress. Bumped version to 1.6. Author: Grok.
 
 # Set version
-$version = "1.12"  # Added auto-update with GitHub API for incremental repo sync
+$version = "1.13"  # Added auto-update with GitHub API for incremental repo sync
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -198,19 +199,14 @@ try {
         if ($fullUpdateNeeded -eq "yes") {
             Write-Host "Full repo update available (new or changed files/folders). Recommend updating." -ForegroundColor Yellow
             Write-Log "Full repo update detected"
-            $fullUpdateChoice = Read-Host "Update only changed/added files (API sync)? (y/n) or (c)ache only"
-            $cacheOnly = $false
-            if ($fullUpdateChoice.ToLower() -eq 'c') {
-                $cacheOnly = $true
-                Write-Host "Cache-only mode: Will populate repo_cache.json without downloading files." -ForegroundColor Yellow
-            }
-            if ($fullUpdateChoice.ToLower() -eq 'y' -or $cacheOnly) {
+            $fullUpdateChoice = Read-Host "Update only changed/added files (API sync)? (y/n)"
+            if ($fullUpdateChoice.ToLower() -eq 'y') {
                 try {
                     # Helper function to sync repo incrementally using GitHub API
                     function Sync-Repo {
                         $owner = "marcky168"
                         $repo = "VCATechManager"
-                        $branch = "main"
+                        $branch = "HEAD"
                         $cacheFile = "$PSScriptRoot\repo_cache.json"
                         $apiHeaders = @{
                             Accept = "application/vnd.github+json"
@@ -232,25 +228,14 @@ try {
                                 $response = Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -ErrorAction Stop
                                 return $response
                             } catch {
-                                $statusCode = $null
-                                $errorMessage = $_.Exception.Message
-                                Write-Host "Exception type: $($_.Exception.GetType().FullName)" -ForegroundColor Yellow
-                                if ($_.Exception.Response) {
-                                    $statusCode = $_.Exception.Response.StatusCode
-                                    Write-Host "Response exists, statusCode: $statusCode" -ForegroundColor Yellow
-                                } else {
-                                    Write-Host "No response object" -ForegroundColor Yellow
-                                }
-                                Write-Log "API error: StatusCode=$statusCode, Message=$errorMessage"
-                                Write-Host "Entered catch block. statusCode: $statusCode, errorMessage: $errorMessage" -ForegroundColor Yellow
-                                Write-Host "API call failed: $url - Status: $statusCode - $errorMessage" -ForegroundColor Red
-                                if ($statusCode -eq 404 -or $errorMessage -like "*404*" -or $statusCode -eq 403 -or $errorMessage -like "*403*" -or $statusCode -eq [System.Net.HttpStatusCode]::Forbidden -or $statusCode -eq [System.Net.HttpStatusCode]::NotFound) {
-                                    # Could be private repo, wrong URL, or rate limit exceeded
-                                    Write-Host "$statusCode error detected. This could mean the repository is private, the branch doesn't exist, the repo path is incorrect, or API rate limit exceeded." -ForegroundColor Yellow
+                                $statusCode = $_.Exception.Response.StatusCode
+                                Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
+                                if ($statusCode -eq 404) {
+                                    # Could be private repo or wrong URL
+                                    Write-Host "404 error detected. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
                                     if (-not $pat) {
-                                        Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) to increase rate limits or access private repos." -ForegroundColor Yellow
-                                        Write-Host "Prompting for PAT now..." -ForegroundColor Cyan
-                                        $pat = Read-Host "GitHub PAT (leave blank to skip)"
+                                        Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) if the repo is private." -ForegroundColor Yellow
+                                        $pat = Read-Host "GitHub PAT (leave blank if repo is public)"
                                         if ($pat) {
                                             $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
                                             # Save PAT for future use
@@ -266,7 +251,7 @@ try {
                                         $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
                                         return $response
                                     } else {
-                                        Write-Host "No PAT provided. Check https://api.github.com/rate_limit for current limits. Create a PAT at https://github.com/settings/tokens for higher limits." -ForegroundColor Yellow
+                                        Write-Host "No PAT provided. If repo is private, please provide a PAT. Otherwise, check repo URL and branch." -ForegroundColor Yellow
                                         throw
                                     }
                                 } else {
@@ -289,6 +274,13 @@ try {
                             throw "No tree SHA found"
                         }
 
+                        # Get recursive tree
+                        Write-Host "Building tree URL with treeSha: '$treeSha'" -ForegroundColor Cyan
+                        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/" + $treeSha + "?recursive=1"
+                        Write-Host "Tree URL: '$treeUrl'" -ForegroundColor Cyan
+                        $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
+                        $tree = (ConvertFrom-Json $treeResponse.Content).tree
+
                         # Load local cache (SHA map)
                         if (Test-Path $cacheFile) {
                             $localCache = Get-Content $cacheFile | ConvertFrom-Json
@@ -296,67 +288,56 @@ try {
                             $localCache = @{}
                         }
 
+                        # If cache is empty (first run), populate it with remote SHAs without downloading
+                        if (-not $localCache -or $localCache.Count -eq 0) {
+                            Write-Host "Cache is empty. Populating cache with remote SHAs. Run the update again to sync changed files." -ForegroundColor Yellow
+                            $newCache = @{}
+                            foreach ($item in $tree) {
+                                $path = $item.path
+                                $remoteSha = $item.sha
+                                $newCache[$path] = $remoteSha
+                            }
+                            $newCache | ConvertTo-Json | Set-Content $cacheFile
+                            Write-Host "Cache populated with remote SHAs. No files downloaded. Run again to sync." -ForegroundColor Green
+                            Write-Log "Cache populated with remote SHAs"
+                            return
+                        }
+
                         $newCache = @{}
 
-                        # Function to process a tree recursively
-                        function Process-Tree {
-                            param($treeSha, $currentPath)
-                            $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/" + $treeSha
-                            Write-Host "Fetching tree: $treeUrl" -ForegroundColor Cyan
-                            $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders
-                            $tree = (ConvertFrom-Json $treeResponse.Content).tree
+                        # Process each item in tree
+                        foreach ($item in $tree) {
+                            $path = $item.path
+                            $remoteSha = $item.sha
 
-                            foreach ($item in $tree) {
-                                $path = if ($currentPath) { "$currentPath\$($item.path)" } else { $item.path }
-                                $remoteSha = $item.sha
+                            $newCache[$path] = $remoteSha
 
-                                $newCache[$path] = $remoteSha
-
-                                if ($item.type -eq "tree") {
-                                    # Create directory if missing
-                                    $fullPath = "$PSScriptRoot\$path"
-                                    if (-not (Test-Path $fullPath)) {
-                                        New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
-                                        Write-Host "Created folder: $path" -ForegroundColor Green
-                                    }
-                                    # Recurse into subdirectory
-                                    Process-Tree -treeSha $remoteSha -currentPath $path
-                                } elseif ($item.type -eq "blob") {
-                                    # Check if local file exists and SHA matches
-                                    $fullPath = "$PSScriptRoot\$path"
-                                    $localSha = if (Test-Path $fullPath) { (Get-FileHash $fullPath -Algorithm SHA1).Hash.ToLower() } else { "" }
-                                    if ($localSha -ne $remoteSha) {
-                                        if (-not $cacheOnly) {
-                                            # Download file
-                                            $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
-                                            $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
-                                            Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
-                                            Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
-                                            Write-Log "Downloaded/Updated file: $path"
-                                        } else {
-                                            Write-Host "Would download/update file: $path (local SHA: $localSha, remote SHA: $remoteSha)" -ForegroundColor Yellow
-                                        }
-                                    } else {
-                                        if ($cacheOnly) {
-                                            Write-Host "File matches remote: $path" -ForegroundColor Green
-                                        }
-                                    }
+                            if ($item.type -eq "tree") {
+                                # Create directory if missing
+                                $fullPath = "$PSScriptRoot\$path"
+                                if (-not (Test-Path $fullPath)) {
+                                    New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
+                                    Write-Host "Created folder: $path" -ForegroundColor Green
+                                }
+                            } elseif ($item.type -eq "blob") {
+                                # Check if local file exists and SHA matches
+                                $fullPath = "$PSScriptRoot\$path"
+                                $localSha = if (Test-Path $fullPath) { (Get-FileHash $fullPath -Algorithm SHA1).Hash.ToLower() } else { "" }
+                                if ($localSha -ne $remoteSha) {
+                                    # Download file
+                                    $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+                                    $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
+                                    Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
+                                    Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
+                                    Write-Log "Downloaded/Updated file: $path"
                                 }
                             }
                         }
 
-                        # Start processing from root tree
-                        Process-Tree -treeSha $treeSha -currentPath ""
-
                         # Save new cache
                         $newCache | ConvertTo-Json | Set-Content $cacheFile
-                        if ($cacheOnly) {
-                            Write-Host "Cache populated successfully. Run again with 'y' to sync files." -ForegroundColor Green
-                            Write-Log "Cache populated without downloading"
-                        } else {
-                            Write-Host "Repo sync complete." -ForegroundColor Green
-                            Write-Log "Repo sync complete"
-                        }
+                        Write-Host "Repo sync complete." -ForegroundColor Green
+                        Write-Log "Repo sync complete"
                     }
 
                     Sync-Repo
