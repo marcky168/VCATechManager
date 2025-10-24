@@ -229,14 +229,15 @@ try {
                             } catch {
                                 $statusCode = $_.Exception.Response.StatusCode
                                 Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
-                                if ($statusCode -eq 404) {
-                                    # Could be private repo or wrong URL
-                                    Write-Host "404 error detected. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
+                                # For tree API calls, prompt for PAT on any failure (likely auth required)
+                                if ($url -like "*git/trees*" -or $statusCode -eq 404) {
+                                    # Could be private repo or auth required for tree API
+                                    Write-Host "Tree API failed. This may require authentication even for public repos." -ForegroundColor Yellow
                                     if (-not $pat) {
-                                        Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) if the repo is private." -ForegroundColor Yellow
-                                        $pat = Read-Host "GitHub PAT (leave blank if repo is public)"
-                                        if ($pat) {
-                                            $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
+                                        Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT)." -ForegroundColor Yellow
+                                        $patInput = Read-Host "GitHub PAT (leave blank to skip)"
+                                        if ($patInput) {
+                                            $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($patInput))
                                             # Save PAT for future use
                                             $pat | Set-Content $patPath
                                             Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
@@ -250,7 +251,7 @@ try {
                                         $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
                                         return $response
                                     } else {
-                                        Write-Host "No PAT provided. If repo is private, please provide a PAT. Otherwise, check repo URL and branch." -ForegroundColor Yellow
+                                        Write-Host "No PAT provided. Tree API may require authentication." -ForegroundColor Yellow
                                         throw
                                     }
                                 } else {
