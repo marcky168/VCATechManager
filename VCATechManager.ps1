@@ -198,8 +198,13 @@ try {
         if ($fullUpdateNeeded -eq "yes") {
             Write-Host "Full repo update available (new or changed files/folders). Recommend updating." -ForegroundColor Yellow
             Write-Log "Full repo update detected"
-            $fullUpdateChoice = Read-Host "Update only changed/added files (API sync)? (y/n)"
-            if ($fullUpdateChoice.ToLower() -eq 'y') {
+            $fullUpdateChoice = Read-Host "Update only changed/added files (API sync)? (y/n) or (c)ache only"
+            $cacheOnly = $false
+            if ($fullUpdateChoice.ToLower() -eq 'c') {
+                $cacheOnly = $true
+                Write-Host "Cache-only mode: Will populate repo_cache.json without downloading files." -ForegroundColor Yellow
+            }
+            if ($fullUpdateChoice.ToLower() -eq 'y' -or $cacheOnly) {
                 try {
                     # Helper function to sync repo incrementally using GitHub API
                     function Sync-Repo {
@@ -229,15 +234,14 @@ try {
                             } catch {
                                 $statusCode = $_.Exception.Response.StatusCode
                                 Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
-                                # For tree API calls, prompt for PAT on any failure (likely auth required)
-                                if ($url -like "*git/trees*" -or $statusCode -eq 404) {
-                                    # Could be private repo or auth required for tree API
-                                    Write-Host "Tree API failed. This may require authentication even for public repos." -ForegroundColor Yellow
+                                if ($statusCode -eq 404) {
+                                    # Could be private repo or wrong URL
+                                    Write-Host "404 error detected. This could mean the repository is private, the branch doesn't exist, or the repo path is incorrect." -ForegroundColor Yellow
                                     if (-not $pat) {
-                                        Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT)." -ForegroundColor Yellow
-                                        $patInput = Read-Host "GitHub PAT (leave blank to skip)"
-                                        if ($patInput) {
-                                            $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($patInput))
+                                        Write-Host "Attempting with authentication. Please enter your GitHub Personal Access Token (PAT) if the repo is private." -ForegroundColor Yellow
+                                        $pat = Read-Host "GitHub PAT (leave blank if repo is public)"
+                                        if ($pat) {
+                                            $pat = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($pat))
                                             # Save PAT for future use
                                             $pat | Set-Content $patPath
                                             Write-Host "PAT saved to $patPath for future updates." -ForegroundColor Green
@@ -251,7 +255,7 @@ try {
                                         $response = Invoke-WebRequest -Uri $url -Headers $authHeaders -UseBasicParsing -ErrorAction Stop
                                         return $response
                                     } else {
-                                        Write-Host "No PAT provided. Tree API may require authentication." -ForegroundColor Yellow
+                                        Write-Host "No PAT provided. If repo is private, please provide a PAT. Otherwise, check repo URL and branch." -ForegroundColor Yellow
                                         throw
                                     }
                                 } else {
@@ -288,21 +292,6 @@ try {
                             $localCache = @{}
                         }
 
-                        # If cache is empty (first run), populate it with remote SHAs without downloading
-                        if (-not $localCache -or $localCache.Count -eq 0) {
-                            Write-Host "Cache is empty. Populating cache with remote SHAs. Run the update again to sync changed files." -ForegroundColor Yellow
-                            $newCache = @{}
-                            foreach ($item in $tree) {
-                                $path = $item.path
-                                $remoteSha = $item.sha
-                                $newCache[$path] = $remoteSha
-                            }
-                            $newCache | ConvertTo-Json | Set-Content $cacheFile
-                            Write-Host "Cache populated with remote SHAs. No files downloaded. Run again to sync." -ForegroundColor Green
-                            Write-Log "Cache populated with remote SHAs"
-                            return
-                        }
-
                         $newCache = @{}
 
                         # Process each item in tree
@@ -324,20 +313,33 @@ try {
                                 $fullPath = "$PSScriptRoot\$path"
                                 $localSha = if (Test-Path $fullPath) { (Get-FileHash $fullPath -Algorithm SHA1).Hash.ToLower() } else { "" }
                                 if ($localSha -ne $remoteSha) {
-                                    # Download file
-                                    $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
-                                    $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
-                                    Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
-                                    Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
-                                    Write-Log "Downloaded/Updated file: $path"
+                                    if (-not $cacheOnly) {
+                                        # Download file
+                                        $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+                                        $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
+                                        Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
+                                        Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
+                                        Write-Log "Downloaded/Updated file: $path"
+                                    } else {
+                                        Write-Host "Would download/update file: $path (local SHA: $localSha, remote SHA: $remoteSha)" -ForegroundColor Yellow
+                                    }
+                                } else {
+                                    if ($cacheOnly) {
+                                        Write-Host "File matches remote: $path" -ForegroundColor Green
+                                    }
                                 }
                             }
                         }
 
                         # Save new cache
                         $newCache | ConvertTo-Json | Set-Content $cacheFile
-                        Write-Host "Repo sync complete." -ForegroundColor Green
-                        Write-Log "Repo sync complete"
+                        if ($cacheOnly) {
+                            Write-Host "Cache populated successfully. Run again with 'y' to sync files." -ForegroundColor Green
+                            Write-Log "Cache populated without downloading"
+                        } else {
+                            Write-Host "Repo sync complete." -ForegroundColor Green
+                            Write-Log "Repo sync complete"
+                        }
                     }
 
                     Sync-Repo
