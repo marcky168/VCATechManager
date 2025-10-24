@@ -177,7 +177,7 @@ function Invoke-GitHubApi {
             Write-Host "API call failed: $url - Status: $statusCode - $($_.Exception.Message)" -ForegroundColor Red
             if ($statusCode -eq 404) {
                 if (-not $pat) {
-                    Write-Host "404 detected—repo may be private. Enter GitHub PAT (leave blank if public):" -ForegroundColor Yellow
+                    Write-Host "404 detected�repo may be private. Enter GitHub PAT (leave blank if public):" -ForegroundColor Yellow
                     $patInput = Read-Host
                     if ($patInput) {
                         $securePat = ConvertTo-SecureString $patInput -AsPlainText -Force
@@ -208,7 +208,7 @@ function Invoke-GitHubApi {
 function Sync-Repo {
     $owner = "marcky168"
     $repo = "VCATechManager"
-    $branch = "main"  # Changed from "HEAD" for reliability—use your default branch
+    $branch = "main"  # Changed from "HEAD" for reliability�use your default branch
     $cacheFile = "$PSScriptRoot\repo_cache.json"
     $lastTreeShaFile = "$PSScriptRoot\last_tree_sha.txt"  # New: For quick change detection
     $apiHeaders = @{
@@ -236,7 +236,7 @@ function Sync-Repo {
 
     if ($remoteTreeSha -eq $localTreeSha) {
         Write-Host "No changes detected in repo (tree SHAs match). Skipping sync." -ForegroundColor Green
-        Write-Log "No repo changes—sync skipped"
+        Write-Log "No repo changes�sync skipped"
         return
     }
 
@@ -747,7 +747,7 @@ try {
             } else {
                 $fuseType = "Physical Fuse"
             }
-            Write-Host ("`nFuse Device IP ({0} from nslookup on {1}): " -f $fuseType, $fuseHostname) -ForegroundColor Green -NoNewline
+            Write-Host "`nFuse Device IP $fuseType from nslookup on $fuseHostname : " -ForegroundColor Green -NoNewline
             Write-Host "$fuseIp" -ForegroundColor Yellow
             $pingResult = Test-Connection -ComputerName $fuseIp -Count 4 -ErrorAction SilentlyContinue
             if ($pingResult) {
@@ -983,7 +983,7 @@ try {
                             '.gif' { 'image/gif' }
                             default { 'image/png' }
                         }
-                        $signatureHtml = $signatureHtml -replace "cid:$cid", "data:$mime;base64,$base64"
+                        $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
                     } catch {
                         Write-Debug "Failed to embed attachment $($attach.FileName): $($_.Exception.Message)"
                     }
@@ -999,17 +999,7 @@ try {
             }
 
             # Build formatted HTML body
-            $bodyHtml = @"
-<p><strong style="color: red;">Team,</strong></p>
-<p><strong>Details:</strong></p>
-<p><span style="font-weight: bold; color: red;">Location:</span> <span style="color: #4169e1;">$location</span></p>
-<p><span style="font-weight: bold; color: red;">Site Contact Name:</span> <span style="color: #4169e1;">$contact ($phone)</span></p>
-<p><span style="font-weight: bold; color: red;">Issue:</span> <span style="color: #4169e1;">$description</span></p>
-<p><strong style="color: red;">Error Details:</strong></p>
-<pre>$errorDetails</pre>
-<br><br>
-$signatureHtml
-"@
+            $bodyHtml = [string]::Format('<p><strong style="color: red;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: red;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: red;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: red;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: red;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
 
             # Wrap in html/body if signature doesn't include it
             $bodyHtml = "<html><body>$bodyHtml</body></html>"
@@ -1282,7 +1272,7 @@ $signatureHtml
                             '.gif' { 'image/gif' }
                             default { 'image/png' }
                         }
-                        $signatureHtml = $signatureHtml -replace "cid:$cid", "data:$mime;base64,$base64"
+                        $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
                     } catch {
                         Write-Debug "Failed to embed attachment $($attach.FileName): $($_.Exception.Message)"
                     }
@@ -1298,17 +1288,7 @@ $signatureHtml
             }
 
             # Build formatted HTML body
-            $bodyHtml = @"
-<p><strong style="color: #CD5C5C;">Team,</strong></p>
-<p><strong>Details:</strong></p>
-<p><span style="font-weight: bold; color: #CD5C5C;">Location:</span> <span style="color: #4169e1;">$location</span></p>
-<p><span style="font-weight: bold; color: #CD5C5C;">Site Contact Name:</span> <span style="color: #4169e1;">$contact ($phone)</span></p>
-<p><span style="font-weight: bold; color: #CD5C5C;">Issue:</span> <span style="color: #4169e1;">$description</span></p>
-<p><strong style="color: #CD5C5C;">Error Details:</strong></p>
-<pre>$errorDetails</pre>
-<br><br>
-$signatureHtml
-"@
+            $bodyHtml = [string]::Format('<p><strong style="color: #CD5C5C;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: #CD5C5C;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: #CD5C5C;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
 
             # Wrap in html/body if signature doesn't include it
             $bodyHtml = "<html><body>$bodyHtml</body></html>"
@@ -1539,7 +1519,7 @@ $signatureHtml
                             '.gif' { 'image/gif' }
                             default { 'image/png' }
                         }
-                        $signatureHtml = $signatureHtml -replace "cid:$cid", ("data:{0};base64,{1}" -f $mime, $base64)
+                        $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
                     } catch {
                         # Ignore attachment processing errors
                     }
@@ -1555,18 +1535,7 @@ $signatureHtml
             }
 
             # Build HTML body
-            $bodyHtml = @"
-<html>
-<body>
-<p>Dear Dev Team,</p>
-<p>$description</p>
-<p>$errorDetails</p>
-<p>Best regards,<br>
-$(whoami)</p>
-$signatureHtml
-</body>
-</html>
-"@
+            $bodyHtml = [string]::Format('<html><body><p>Dear Dev Team,</p><p>{0}</p><p>{1}</p><p>Best regards,<br>{2}</p>{3}</body></html>', $description, $errorDetails, $(whoami), $signatureHtml)
 
             try {
                 # Create real email
