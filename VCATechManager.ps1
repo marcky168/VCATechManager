@@ -224,6 +224,7 @@ function Sync-Repo {
     }
 
     # Get latest commit to check root tree SHA (lightweight)
+    Write-Host "Debug: Owner='$owner', Repo='$repo', Branch='$branch'" -ForegroundColor Cyan
     $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
     $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders
     $commitData = ConvertFrom-Json $commitResponse.Content
@@ -299,7 +300,7 @@ function Sync-Repo {
                 Write-Host "Downloaded/Updated: $path" -ForegroundColor Green
                 Write-Log "Downloaded/Updated: $path"
             } else {
-                Write-Host "Unchanged (skipping): $path" -ForegroundColor Gray
+                if ($verboseLogging) { Write-Host "Unchanged (skipping): $path" -ForegroundColor Gray }
             }
         }
     }
