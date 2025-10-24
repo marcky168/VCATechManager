@@ -322,7 +322,14 @@ try {
                             } elseif ($item.type -eq "blob") {
                                 # Check if local file exists and SHA matches
                                 $fullPath = "$PSScriptRoot\$path"
-                                $localSha = if (Test-Path $fullPath) { (Get-FileHash $fullPath -Algorithm SHA1).Hash.ToLower() } else { "" }
+                                $localSha = if (Test-Path $fullPath) {
+                                    $content = [System.IO.File]::ReadAllBytes($fullPath)
+                                    $prefix = [System.Text.Encoding]::UTF8.GetBytes("blob $($content.Length)`0")
+                                    $data = $prefix + $content
+                                    $hasher = [System.Security.Cryptography.SHA1]::Create()
+                                    $hashBytes = $hasher.ComputeHash($data)
+                                    [BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
+                                } else { "" }
                                 if ($localSha -ne $remoteSha) {
                                     # Download file
                                     $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
@@ -330,6 +337,8 @@ try {
                                     Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
                                     Write-Host "Downloaded/Updated file: $path" -ForegroundColor Green
                                     Write-Log "Downloaded/Updated file: $path"
+                                } else {
+                                    Write-Host "File unchanged: $path (skipping download)" -ForegroundColor Gray  # Optional: Add for verbosity
                                 }
                             }
                         }
