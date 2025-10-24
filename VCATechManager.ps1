@@ -243,7 +243,26 @@ function Sync-Repo {
     Write-Host "Changes detected (remote SHA: $remoteTreeSha, local: $localTreeSha). Proceeding with full sync..." -ForegroundColor Yellow
 
     # Get recursive tree only if changes detected
-    $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$remoteTreeSha?recursive=1"
+    $remoteTreeSha = $commitData.commit.tree.sha  # Ensure SHA is correct
+    Write-Host "Remote tree SHA before tree URL: $remoteTreeSha" -ForegroundColor Cyan
+    $remoteTreeSha = $commitData.commit.tree.sha  # Ensure SHA is correct again
+    $remoteTreeSha = $commitData.commit.tree.sha  # Ensure SHA is correct once more
+    $remoteTreeSha = $commitData.commit.tree.sha  # Final ensure
+    if ($remoteTreeSha -notmatch '^[a-f0-9]{40}$') {
+        Write-Host "Invalid remote tree SHA: '$remoteTreeSha'" -ForegroundColor Red
+        return
+    }
+    $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$($remoteTreeSha)?recursive=1"
+    Write-Host "Tree URL: $treeUrl" -ForegroundColor Cyan
+    if ($remoteTreeSha -notmatch '^[a-f0-9]{40}$') {
+        Write-Host "Invalid remote tree SHA before API call: '$remoteTreeSha'" -ForegroundColor Red
+        return
+    }
+    if ($treeUrl -notlike "*$remoteTreeSha*") {
+        Write-Host "Tree URL does not contain the SHA: URL='$treeUrl', SHA='$remoteTreeSha'" -ForegroundColor Red
+        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$($remoteTreeSha)?recursive=1"  # Fix URL
+        Write-Host "Fixed Tree URL: $treeUrl" -ForegroundColor Green
+    }
     $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders -pat $pat -patPath $patPath
     $tree = (ConvertFrom-Json $treeResponse.Content).tree
 
@@ -2389,7 +2408,7 @@ try {
             Write-Host "Running Angry IP Scanner on range: $StartIP - $EndIP" -ForegroundColor Cyan
 
             # Path to Angry IP Scanner (updated to correct location)
-            $AngryIPPath = "$PSScriptRoot\Private\bin\ipscan-win64-3.9.0.exe"
+            $AngryIPPath = "$PSScriptRoot\Private\bin\ipscan-win64-3.9.2.exe"
 
             if (Test-Path $AngryIPPath) {
                 # Run Angry IP with range and start scan
