@@ -628,35 +628,40 @@ try {
             Write-Log "Reservation retrieval error: $($_.Exception.Message)"
         }
 
-        # Retrieve ARP data from servers to find additional devices
-        Write-Host "`nRetrieving ARP data from servers..." -ForegroundColor Green
-        $arpResults = @()
-        $servers = Get-CachedServers -AU $AU
-        if ($servers) {
-            foreach ($server in $servers) {
-                try {
-                    $arpData = Invoke-Command -ComputerName $server -ScriptBlock {
-                        try {
-                            Get-NetNeighbor | Select-Object IPAddress, LinkLayerAddress
-                        } catch {
-                            $arpOutput = arp -a
-                            $lines = $arpOutput -split "`n" | Where-Object { $_ -match '\d+\.\d+\.\d+\.\d+\s+[0-9a-f-]+' }
-                            $lines | ForEach-Object {
-                                $parts = $_ -split '\s+' | Where-Object { $_ -and $_ -ne 'dynamic' -and $_ -ne 'static' }
-                                if ($parts.Count -ge 2) {
-                                    [PSCustomObject]@{ IPAddress = $parts[0]; LinkLayerAddress = $parts[1] }
-                                }
+# Retrieve ARP data from servers to find additional devices
+Write-Host "`nRetrieving ARP data from servers..." -ForegroundColor Green
+$arpResults = @()
+$servers = Get-CachedServers -AU $AU
+if ($servers) {
+    $arpJobs = @()
+    foreach ($server in $servers) {
+        $job = Start-RSJob -ScriptBlock {
+            param($server, $ADCredential)
+            try {
+                Invoke-Command -ComputerName $server -ScriptBlock {
+                    try {
+                        Get-NetNeighbor | Select-Object IPAddress, LinkLayerAddress
+                    } catch {
+                        $arpOutput = arp -a
+                        $lines = $arpOutput -split "`n" | Where-Object { $_ -match '\d+\.\d+\.\d+\.\d+\s+[0-9a-f-]+' }
+                        $lines | ForEach-Object {
+                            $parts = $_ -split '\s+' | Where-Object { $_ -and $_ -ne 'dynamic' -and $_ -ne 'static' }
+                            if ($parts.Count -ge 2) {
+                                [PSCustomObject]@{ IPAddress = $parts[0]; LinkLayerAddress = $parts[1] }
                             }
                         }
-                    } -Credential $ADCredential -ErrorAction Stop
-                    $arpResults += $arpData
-                } catch {
-                    Write-Debug "Failed to get ARP from $server : $($_.Exception.Message)"
-                }
+                    }
+                } -Credential $ADCredential -ErrorAction Stop
+            } catch {
+                Write-Debug "Failed to get ARP from $server : $($_.Exception.Message)"
+                $null
             }
-        }
-
-        # Process ARP results and add matching devices to groupResults (excluding Fuse)
+        } -ArgumentList $server, $ADCredential
+        $arpJobs += $job
+    }
+    $arpResults = $arpJobs | Wait-RSJob | Receive-RSJob | Where-Object { $_ }
+    Remove-RSJob -Job $arpJobs
+}        # Process ARP results and add matching devices to groupResults (excluding Fuse)
         $uniqueArp = $arpResults | Sort-Object IPAddress -Unique
         foreach ($entry in $uniqueArp) {
             $group = Get-DeviceGroup $entry.LinkLayerAddress
@@ -2603,7 +2608,7 @@ try {
             "15" = "Launch vSphere for Fuse VM"
             "16" = "Run Angry IP Scanner on DHCP Scope"
             "19" = "Launch Remote Desktop to Selected Servers"
-            "999" = "New Session"
+            "999" = "Restart Script"
             "81" = "Launch WOOFware Reports Website"
             "82" = "Launch Fuse Website"
             "83" = "win: Restart Sparky Services"
@@ -2755,10 +2760,24 @@ try {
                             Write-Log "Viewed ARP table for servers in AU $AU"
                         }
                     }
+                    # Import ActiveDirectory for Abaxis search
+                    try {
+                        Import-Module ActiveDirectory -ErrorAction Stop
+                    } catch {
+                        Write-Host "ActiveDirectory module required for Abaxis search. Install RSAT." -ForegroundColor Red
+                        continue
+                    }
                     # Then run the Abaxis MAC Address Search
                     Abaxis-MacAddressSearch -AU $AU
                 }
                 "2" {
+                    # Import PoshRSJob for parallel processing
+                    try {
+                        Import-Module -Name "$PSScriptRoot\Private\lib\PoshRSJob\1.7.4.4\PoshRSJob.psm1" -ErrorAction Stop
+                    } catch {
+                        Write-Host "PoshRSJob module required for Woofware check." -ForegroundColor Red
+                        continue
+                    }
                     Woofware-ErrorsCheck -AU $AU
                 }
                 "2b" {
