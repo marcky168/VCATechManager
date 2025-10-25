@@ -2,6 +2,11 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.22 - 2025-10-24
++ Code cleanup: removed duplicate variables, commented code, and placeholders
++ Implemented credential validation in Get-ADSecureCredential function
++ Improved script maintainability and reduced clutter
+
 v1.21 - 2025-10-24
 + Optimized main menu loop to do-while structure for smoother UX
 + Removed Clear-Host from menu loop to eliminate screen flicker
