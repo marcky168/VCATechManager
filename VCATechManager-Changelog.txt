@@ -3,9 +3,12 @@ Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
 v1.17 - 2025-10-24
++ Implemented lazy loading for modules (ActiveDirectory, PoshRSJob) to speed up initial launch
++ Parallelized ARP data retrieval using RSJobs for faster remote queries
 + Fixed SHA trimming to prevent malformed URLs in GitHub API calls
 + Resolved 404 errors caused by trailing newlines in commit SHAs
 + Improved URL construction reliability in sync functions
++ Renamed option 999 to "Restart Script" for clarity
 
 v1.16 - 2025-10-24
 + Fixed User-Agent header to dynamically use current script version
