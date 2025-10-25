@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.23"  # Runtime error fixes and function ordering
+$version = "1.24"  # Enhanced parallel processing for multi-server operations
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -699,30 +699,47 @@ if ($servers) {
         $otherDevices = $groupResults | Where-Object { $_.ClientId -notmatch '^00-90-FB|^00-50-56|^00-0C-29' }
         $runPingTest = Read-Host "Run ping test on other leased devices? (y/n)"
         if ($runPingTest.ToLower() -eq 'y') {
+            Write-Host "Testing connectivity to $($otherDevices.Count) devices (parallel processing)..." -ForegroundColor Green
+            $pingJobs = @()
             foreach ($device in $otherDevices) {
-                $ip = $device.IPAddress.ToString()
-                $deviceName = if ($device.PSObject.Properties.Match('HostName') -and $device.HostName -and $device.HostName -ne $ip -and $device.HostName -notmatch '^BAD_ADDRESS$') {
-                    $device.HostName
-                } elseif ($device.PSObject.Properties.Match('Name') -and $device.Name) {
-                    $device.Name
-                } else {
-                    try {
-                        $resolved = [System.Net.Dns]::GetHostEntry($ip).HostName
-                        if ($resolved -and $resolved -ne $ip) { $resolved } else { $ip }
-                    } catch {
-                        $ip
+                $job = Start-RSJob -ScriptBlock {
+                    param($device)
+                    $ip = $device.IPAddress.ToString()
+                    $deviceName = if ($device.PSObject.Properties.Match('HostName') -and $device.HostName -and $device.HostName -ne $ip -and $device.HostName -notmatch '^BAD_ADDRESS$') {
+                        $device.HostName
+                    } elseif ($device.PSObject.Properties.Match('Name') -and $device.Name) {
+                        $device.Name
+                    } else {
+                        try {
+                            $resolved = [System.Net.Dns]::GetHostEntry($ip).HostName
+                            if ($resolved -and $resolved -ne $ip) { $resolved } else { $ip }
+                        } catch {
+                            $ip
+                        }
                     }
-                }
-                $pingResult = Test-Connection -ComputerName $ip -Count 2 -Quiet
+                    $pingResult = Test-Connection -ComputerName $ip -Count 2 -Quiet
+                    [PSCustomObject]@{
+                        DeviceName = $deviceName
+                        IP = $ip
+                        PingResult = $pingResult
+                    }
+                } -ArgumentList $device
+                $pingJobs += $job
+            }
+
+            # Wait for all ping jobs and display results
+            $pingResults = $pingJobs | Wait-RSJob | Receive-RSJob
+            foreach ($result in $pingResults | Sort-Object DeviceName) {
                 Write-Host "Device " -NoNewline
-                Write-Host "$deviceName" -ForegroundColor Cyan -NoNewline
-                Write-Host " ($ip) : Ping - " -NoNewline
-                if ($pingResult) {
-                    Write-Host "$pingResult" -ForegroundColor Green
+                Write-Host "$($result.DeviceName)" -ForegroundColor Cyan -NoNewline
+                Write-Host " ($($result.IP)) : Ping - " -NoNewline
+                if ($result.PingResult) {
+                    Write-Host "$($result.PingResult)" -ForegroundColor Green
                 } else {
-                    Write-Host "$pingResult" -ForegroundColor Red
+                    Write-Host "$($result.PingResult)" -ForegroundColor Red
                 }
             }
+            Remove-RSJob -Job $pingJobs
         } else {
             Write-Host "Ping test skipped." -ForegroundColor Yellow
         }
@@ -3093,15 +3110,42 @@ if ($servers) {
                     Start-Process "https://$ComputerNameStripped-fuse:8443"
                 }
                 "83" {
-                    # Restart Sparky Services
+                    # Restart Sparky Services (Parallel Processing)
                     if (Get-Module -Name ActiveDirectory) {
                         Clear-Variable -Name SiteServers, SiteAU -ErrorAction Ignore
                         $SiteAU = Convert-VcaAu -AU $AU -Suffix ''
                         Get-ADComputer -Filter "Name -like '$SiteAU-ns*' -and OperatingSystem -like '*Server*'" -Properties IPv4Address, OperatingSystem |
                             Select-Object Name, IPv4Address, OperatingSystem, @{n = 'Status'; e = { $PSItem.Name | Get-PingStatus } } | Sort-Object Name |
                             Out-GridView -Title "#83 Select Remote Desktop Server to Reset Sparky Services - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Multiple -OutVariable SiteServers | Out-Null
-                        $SiteServers | foreach-object {
-                            Invoke-Command -ComputerName $PSItem.Name -Credential $ADCredential { Get-Service -Name Sparky* | Restart-Service -Verbose }
+
+                        if ($SiteServers) {
+                            Write-Host "Restarting Sparky services on selected servers (parallel processing)..." -ForegroundColor Green
+                            $restartJobs = @()
+                            foreach ($server in $SiteServers) {
+                                $job = Start-RSJob -ScriptBlock {
+                                    param($serverName, $cred)
+                                    try {
+                                        Invoke-Command -ComputerName $serverName -Credential $cred -ScriptBlock {
+                                            Get-Service -Name Sparky* | Restart-Service -Verbose -ErrorAction Stop
+                                            "Success: Services restarted on $using:serverName"
+                                        } -ErrorAction Stop
+                                    } catch {
+                                        "Error: Failed to restart services on $serverName - $($_.Exception.Message)"
+                                    }
+                                } -ArgumentList $server.Name, $ADCredential
+                                $restartJobs += $job
+                            }
+
+                            # Wait for all jobs to complete and display results
+                            $results = $restartJobs | Wait-RSJob | Receive-RSJob
+                            foreach ($result in $results) {
+                                if ($result -like "Success:*") {
+                                    Write-Host $result -ForegroundColor Green
+                                } else {
+                                    Write-Host $result -ForegroundColor Red
+                                }
+                            }
+                            Remove-RSJob -Job $restartJobs
                         }
                     }
                 }
