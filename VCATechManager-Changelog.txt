@@ -2,6 +2,11 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.24 - 2025-10-25
++ Enhanced parallel processing: Converted service restart operations to use PoshRSJob for faster multi-server management
++ Optimized ping testing: Abaxis MAC address search now uses parallel ping jobs instead of sequential testing
++ Improved performance: Multi-server operations now complete in the time of the slowest server rather than sum of all response times
+
 v1.23 - 2025-10-25
 + Fixed runtime errors: reordered function definitions to resolve null log path and unrecognized function errors
 + Moved logging initialization and Test-ADCredentials function before early credential loading
