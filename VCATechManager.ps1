@@ -7,7 +7,7 @@
 # 2025-01-01: Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck. Added try-catch, Write-Log, Write-Progress. Bumped version to 1.6. Author: Grok.
 
 # Set version
-$version = "1.13"  # Added auto-update with GitHub API for incremental repo sync
+$version = "1.14"  # Optimized sync with GitHub Compare API and version checks
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -208,143 +208,74 @@ function Invoke-GitHubApi {
 function Sync-Repo {
     $owner = "marcky168"
     $repo = "VCATechManager"
-    $branch = "main"  # Changed from "HEAD" for reliability�use your default branch
-    $cacheFile = "$PSScriptRoot\repo_cache.json"
-    $lastTreeShaFile = "$PSScriptRoot\last_tree_sha.txt"  # New: For quick change detection
+    $branch = "main"
+    $lastCommitShaFile = "$PSScriptRoot\last_commit_sha.txt"
     $apiHeaders = @{
         Accept = "application/vnd.github+json"
-        "User-Agent" = "VCATechManager-Script/1.13"  # Bumped to match your version
+        "User-Agent" = "VCATechManager-Script/1.13"
     }
 
-    # Check if repo is private and prompt for PAT if needed
     $patPath = "$PSScriptRoot\Private\github_pat.txt"
     $pat = $null
     if (Test-Path $patPath) {
         $pat = Get-Content $patPath -Raw
     }
 
-    # Get latest commit to check root tree SHA (lightweight)
-    Write-Host "Debug: Owner='$owner', Repo='$repo', Branch='$branch'" -ForegroundColor Cyan
+    # Get latest commit
     $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
     $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders -pat $pat -patPath $patPath
     $commitData = ConvertFrom-Json $commitResponse.Content
-    $remoteTreeSha = $commitData.commit.tree.sha
-    Write-Host "Remote tree SHA: $remoteTreeSha" -ForegroundColor Green
+    $remoteCommitSha = $commitData.sha
+    Write-Host "Remote commit SHA: $remoteCommitSha" -ForegroundColor Green
 
-    # Load local last tree SHA
-    $localTreeSha = if (Test-Path $lastTreeShaFile) { Get-Content $lastTreeShaFile -Raw } else { "" }
+    # Load local last commit SHA
+    $localCommitSha = if (Test-Path $lastCommitShaFile) { Get-Content $lastCommitShaFile -Raw } else { "" }
 
-    if ($remoteTreeSha -eq $localTreeSha) {
-        Write-Host "No changes detected in repo (tree SHAs match). Skipping sync." -ForegroundColor Green
-        Write-Log "No repo changes�sync skipped"
+    if ($remoteCommitSha -eq $localCommitSha) {
+        Write-Host "No changes detected. Skipping sync." -ForegroundColor Green
         return
     }
 
-    Write-Host "Changes detected (remote SHA: $remoteTreeSha, local: $localTreeSha). Proceeding with full sync..." -ForegroundColor Yellow
-
-    # Get recursive tree only if changes detected
-    $remoteTreeSha = $commitData.commit.tree.sha  # Ensure SHA is correct
-    Write-Host "Remote tree SHA before tree URL: $remoteTreeSha" -ForegroundColor Cyan
-    $remoteTreeSha = $commitData.commit.tree.sha  # Ensure SHA is correct again
-    $remoteTreeSha = $commitData.commit.tree.sha  # Ensure SHA is correct once more
-    $remoteTreeSha = $commitData.commit.tree.sha  # Final ensure
-    if ($remoteTreeSha -notmatch '^[a-f0-9]{40}$') {
-        Write-Host "Invalid remote tree SHA: '$remoteTreeSha'" -ForegroundColor Red
-        return
-    }
-    $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$($remoteTreeSha)?recursive=1"
-    Write-Host "Tree URL: $treeUrl" -ForegroundColor Cyan
-    if ($remoteTreeSha -notmatch '^[a-f0-9]{40}$') {
-        Write-Host "Invalid remote tree SHA before API call: '$remoteTreeSha'" -ForegroundColor Red
-        return
-    }
-    if ($treeUrl -notlike "*$remoteTreeSha*") {
-        Write-Host "Tree URL does not contain the SHA: URL='$treeUrl', SHA='$remoteTreeSha'" -ForegroundColor Red
-        $treeUrl = "https://api.github.com/repos/$owner/$repo/git/trees/$($remoteTreeSha)?recursive=1"  # Fix URL
-        Write-Host "Fixed Tree URL: $treeUrl" -ForegroundColor Green
-    }
-    $treeResponse = Invoke-GitHubApi -url $treeUrl -headers $apiHeaders -pat $pat -patPath $patPath
-    $tree = (ConvertFrom-Json $treeResponse.Content).tree
-
-    # Load local cache (SHA map)
-    if (Test-Path $cacheFile) {
-        $localCache = Get-Content $cacheFile | ConvertFrom-Json
-    } else {
-        $localCache = @{}
-    }
-
-    # If cache empty (first run), populate without downloading
-    if ($localCache.Count -eq 0) {
-        Write-Host "Cache empty. Populating with remote SHAs (no downloads). Run again to sync if needed." -ForegroundColor Yellow
-        $newCache = @{}
-        foreach ($item in $tree) {
-            $newCache[$item.path] = $item.sha
-        }
-        $newCache | ConvertTo-Json | Set-Content $cacheFile
-        $remoteTreeSha | Set-Content $lastTreeShaFile  # Save initial tree SHA
-        Write-Host "Cache populated. No files downloaded." -ForegroundColor Green
-        Write-Log "Initial cache populated"
+    if ($localCommitSha -eq "") {
+        Write-Host "First run, setting commit SHA. Skipping sync." -ForegroundColor Green
+        $remoteCommitSha | Set-Content $lastCommitShaFile
         return
     }
 
-    $newCache = @{}
-    $totalItems = $tree.Count
-    $i = 0
+    Write-Host "Changes detected. Proceeding with sync..." -ForegroundColor Yellow
 
-    # Process tree items with progress bar
-    foreach ($item in $tree) {
-        $i++
-        $path = $item.path
-        $remoteSha = $item.sha
-        $newCache[$path] = $remoteSha
-        Write-Progress -Activity "Synchronizing Repo Files" -Status "Processing $i of $totalItems : $path" -PercentComplete (($i / $totalItems) * 100)
+    # Compare commits
+    $compareUrl = "https://api.github.com/repos/$owner/$repo/compare/$($localCommitSha)...$($remoteCommitSha)"
+    $compareResponse = Invoke-GitHubApi -url $compareUrl -headers $apiHeaders -pat $pat -patPath $patPath
+    $compareData = ConvertFrom-Json $compareResponse.Content
 
-        if ($item.type -eq "tree") {
-            $fullPath = "$PSScriptRoot\$path"
-            if (-not (Test-Path $fullPath)) {
-                New-Item -Path $fullPath -ItemType Directory -Force | Out-Null
-                Write-Host "Created folder: $path" -ForegroundColor Green
+    foreach ($file in $compareData.files) {
+        $path = $file.filename
+        $status = $file.status
+        $fullPath = "$PSScriptRoot\$path"
+
+        if ($status -eq "removed") {
+            if (Test-Path $fullPath) {
+                Remove-Item $fullPath -Force
+                Write-Host "Deleted: $path" -ForegroundColor Yellow
+                Write-Log "Deleted: $path"
             }
-        } elseif ($item.type -eq "blob") {
-            $fullPath = "$PSScriptRoot\$path"
-            $localSha = if (Test-Path $fullPath) {
-                $content = [System.IO.File]::ReadAllBytes($fullPath)
-                $prefix = [System.Text.Encoding]::UTF8.GetBytes("blob $($content.Length)`0")
-                $data = $prefix + $content
-                $hasher = [System.Security.Cryptography.SHA1]::Create()
-                $hashBytes = $hasher.ComputeHash($data)
-                [BitConverter]::ToString($hashBytes).Replace("-", "").ToLower()
-            } else { "" }
-
-            if ($localSha -ne $remoteSha) {
-                $downloadUrl = "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
-                $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
+        } elseif ($status -eq "added" -or $status -eq "modified") {
+            $downloadUrl = $file.raw_url
+            $downloadHeaders = if ($pat) { @{ Authorization = "Bearer $pat" } } else { @{} }
+            try {
                 Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
                 Write-Host "Downloaded/Updated: $path" -ForegroundColor Green
                 Write-Log "Downloaded/Updated: $path"
-            } else {
-                if ($verboseLogging) { Write-Host "Unchanged (skipping): $path" -ForegroundColor Gray }
+            } catch {
+                Write-Host "Failed to download $path : $($_.Exception.Message)" -ForegroundColor Red
             }
         }
     }
 
-    Write-Progress -Activity "Synchronizing Repo Files" -Completed
-
-    # Handle deletions (exclude sensitive locals)
-    $localFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -File | ForEach-Object { $_.FullName -replace [regex]::Escape("$PSScriptRoot\"), '' }
-    foreach ($localPath in $localFiles) {
-        if ($localPath -notlike 'logs\*' -and $localPath -notlike 'Private\*' -and $localPath -ne 'repo_cache.json' -and $localPath -ne 'last_tree_sha.txt' -and -not $newCache.ContainsKey($localPath)) {
-            $fullLocalPath = "$PSScriptRoot\$localPath"
-            Remove-Item -Path $fullLocalPath -Force
-            Write-Host "Deleted (not in repo): $localPath" -ForegroundColor Yellow
-            Write-Log "Deleted: $localPath"
-        }
-    }
-
-    # Save updates
-    $newCache | ConvertTo-Json | Set-Content $cacheFile
-    $remoteTreeSha | Set-Content $lastTreeShaFile
-    Write-Host "Repo sync complete. Updated tree SHA saved." -ForegroundColor Green
+    # Update last commit SHA
+    $remoteCommitSha | Set-Content $lastCommitShaFile
+    Write-Host "Repo sync complete." -ForegroundColor Green
     Write-Log "Repo sync complete"
 }
 
