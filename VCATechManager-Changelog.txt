@@ -2,6 +2,12 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.14 - 2025-10-24
++ Optimized repo sync using GitHub Compare Two Commits API to eliminate local SHA-1 hashing and only download/process changed files, significantly improving performance
++ Added version check at startup to fetch remote version and skip sync when up to date, reducing launch time
++ Rewrote Sync-Repo function to use commit SHAs and compare API for accurate incremental updates
++ Improved error handling and logging in sync operations
+
 v1.12 - 2025-10-23
 + Added auto-update with GitHub API for incremental repo sync: fetches latest commit SHA, compares file SHAs, downloads only changed/missing files, creates missing directories, and caches SHAs for efficiency.
 
