@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.19"  # Final optimizations complete
+$version = "1.20"  # Final optimizations complete
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -11,24 +11,10 @@ Clear-Host
 # Configurable Logging: Default to verbose logging enabled
 $verboseLogging = $true
 
-# Load credentials early with centralized function
-$credPathAD = "$PSScriptRoot\Private\vcaadcred.xml"
-$ADCredential = Get-ADSecureCredential -CredPath $credPathAD
-
-# Get script path and last write time
-$scriptPath = $MyInvocation.MyCommand.Path
-if ($scriptPath) {
-    $lastWritten = (Get-Item $scriptPath).LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
-} else {
-    $lastWritten = "N/A"
+# Helper function for centralized Write-Host customization
+function Write-Status ($Message, $Color = "White") {
+    Write-Host $Message -ForegroundColor $Color
 }
-
-# New: Logging toggle and path (create early for initial errors)
-$verboseLogging = $false
-$logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
-# Create log file early to ensure it exists
-New-Item -Path $logPath -ItemType File -Force | Out-Null
 
 # Helper functions moved outside try block for reliability
 function Write-Log {
@@ -41,24 +27,6 @@ function Write-ConditionalLog {
     param([string]$Message)
     if ($verboseLogging) {
         Add-Content -Path $logPath -Value "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")] $Message"
-    }
-}
-
-# Helper function for exporting results (optimization: reduces duplication, added progress bar for large exports)
-function Export-Results {
-    param([array]$Results, [string]$BaseName, [string]$AU)
-    $confirmExport = Read-Host "Export results to CSV? (y/n)"
-    if ($confirmExport.ToLower() -eq 'y') {
-        $exportPath = "$PSScriptRoot\reports\${AU}_${BaseName}_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
-        if ($Results.Count -gt 10) {
-            Write-Progress -Activity "Exporting results" -Status "Writing to CSV..." -PercentComplete 50
-        }
-        $Results | Export-Csv -Path $exportPath -NoTypeInformation
-        if ($Results.Count -gt 10) {
-            Write-Progress -Activity "Exporting results" -Completed
-        }
-        Write-Status "Exported to $exportPath." Green
-        Write-Log "Exported $BaseName results for AU $AU"
     }
 }
 
@@ -103,9 +71,43 @@ function Get-ADSecureCredential {
     return $Cred
 }
 
-# Helper function for centralized Write-Host customization
-function Write-Status ($Message, $Color = "White") {
-    Write-Host $Message -ForegroundColor $Color
+# Load credentials early with centralized function
+$credPathAD = "$PSScriptRoot\Private\vcaadcred.xml"
+$ADCredential = Get-ADSecureCredential -CredPath $credPathAD
+
+# Get script path and last write time
+$scriptPath = $MyInvocation.MyCommand.Path
+if ($scriptPath) {
+    $lastWritten = (Get-Item $scriptPath).LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+} else {
+    $lastWritten = "N/A"
+}
+
+# New: Logging toggle and path (create early for initial errors)
+$verboseLogging = $false
+$logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
+# Create log file early to ensure it exists
+New-Item -Path $logPath -ItemType File -Force | Out-Null
+
+# Helper functions moved outside try block for reliability
+
+# Helper function for exporting results (optimization: reduces duplication, added progress bar for large exports)
+function Export-Results {
+    param([array]$Results, [string]$BaseName, [string]$AU)
+    $confirmExport = Read-Host "Export results to CSV? (y/n)"
+    if ($confirmExport.ToLower() -eq 'y') {
+        $exportPath = "$PSScriptRoot\reports\${AU}_${BaseName}_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+        if ($Results.Count -gt 10) {
+            Write-Progress -Activity "Exporting results" -Status "Writing to CSV..." -PercentComplete 50
+        }
+        $Results | Export-Csv -Path $exportPath -NoTypeInformation
+        if ($Results.Count -gt 10) {
+            Write-Progress -Activity "Exporting results" -Completed
+        }
+        Write-Status "Exported to $exportPath." Green
+        Write-Log "Exported $BaseName results for AU $AU"
+    }
 }
 
 # Helper function to ensure Outlook is running for email creation
