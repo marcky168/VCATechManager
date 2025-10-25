@@ -288,12 +288,16 @@ function Sync-Repo {
     }
 
     $newCache = @{}
+    $totalItems = $tree.Count
+    $i = 0
 
-    # Process tree items
+    # Process tree items with progress bar
     foreach ($item in $tree) {
+        $i++
         $path = $item.path
         $remoteSha = $item.sha
         $newCache[$path] = $remoteSha
+        Write-Progress -Activity "Synchronizing Repo Files" -Status "Processing $i of $totalItems : $path" -PercentComplete (($i / $totalItems) * 100)
 
         if ($item.type -eq "tree") {
             $fullPath = "$PSScriptRoot\$path"
@@ -323,6 +327,8 @@ function Sync-Repo {
             }
         }
     }
+
+    Write-Progress -Activity "Synchronizing Repo Files" -Completed
 
     # Handle deletions (exclude sensitive locals)
     $localFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -File | ForEach-Object { $_.FullName -replace [regex]::Escape("$PSScriptRoot\"), '' }
@@ -372,13 +378,26 @@ try {
             }
         }
 
-        # Check for repo updates (replaces full_update.txt)
+        # Check for repo updates using version check
         Write-Host "Checking for repo updates..." -ForegroundColor Yellow
+        $remoteVersionUrl = "https://raw.githubusercontent.com/marcky168/VCATechManager/main/Private/Version.txt"
         try {
-            Sync-Repo
+            $remoteVersion = Invoke-WebRequest -Uri $remoteVersionUrl -UseBasicParsing | Select-Object -ExpandProperty Content
+            $remoteVersion = $remoteVersion.Trim()
         } catch {
-            Write-Host "Repo update failed: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Log "Repo update failed: $($_.Exception.Message)"
+            Write-Host "Failed to check remote version: $($_.Exception.Message)" -ForegroundColor Yellow
+            $remoteVersion = $version
+        }
+        if ($remoteVersion -gt $version) {
+            Write-Host "New version available: $remoteVersion (local: $version). Running sync..." -ForegroundColor Green
+            try {
+                Sync-Repo
+            } catch {
+                Write-Host "Repo update failed: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Log "Repo update failed: $($_.Exception.Message)"
+            }
+        } else {
+            Write-Host "No new version available (remote: $remoteVersion, local: $version). Skipping sync." -ForegroundColor Green
         }
     } catch {
         Write-Host "Failed to check for updates: $($_.Exception.Message)" -ForegroundColor Yellow
