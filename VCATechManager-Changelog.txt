@@ -2,6 +2,11 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.16 - 2025-10-24
++ Fixed User-Agent header to dynamically use current script version
++ Improved consistency in version handling across sync functions
++ Minor bug fixes and optimizations
+
 v1.15 - 2025-10-24
 + Added auto-reload functionality after sync updates to ensure new script version runs immediately
 + Enhanced debug logging in sync process for better troubleshooting

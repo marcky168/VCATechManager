@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.15"  # Final optimizations for GitHub sync and auto-reload
+$version = "1.16"  # Final fixes for GitHub sync consistency
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -206,7 +206,7 @@ function Sync-Repo {
     $lastCommitShaFile = "$PSScriptRoot\last_commit_sha.txt"
     $apiHeaders = @{
         Accept = "application/vnd.github+json"
-        "User-Agent" = "VCATechManager-Script/1.13"
+        "User-Agent" = "VCATechManager-Script/$version"
     }
 
     $patPath = "$PSScriptRoot\Private\github_pat.txt"
