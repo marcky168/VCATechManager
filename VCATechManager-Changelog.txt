@@ -2,6 +2,11 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.18 - 2025-10-24
++ Final version with all major optimizations implemented
++ Comprehensive performance improvements for launch and sync operations
++ Stable and reliable GitHub auto-update system
+
 v1.17 - 2025-10-24
 + Implemented lazy loading for modules (ActiveDirectory, PoshRSJob) to speed up initial launch
 + Parallelized ARP data retrieval using RSJobs for faster remote queries
