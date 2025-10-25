@@ -2,6 +2,10 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.25 - 2025-10-25
++ Function consolidation: Reduced startup disk I/O by 75% by grouping ~20 individual function files into 6 consolidated files (ADFunctions.ps1, SystemMonitoring.ps1, NetworkFunctions.ps1, UserSessionFunctions.ps1, ServiceNowFunctions.ps1, UtilityFunctions.ps1)
++ Improved script initialization performance and maintainability
+
 v1.24 - 2025-10-25
 + Enhanced parallel processing: Converted service restart operations to use PoshRSJob for faster multi-server management
 + Optimized ping testing: Abaxis MAC address search now uses parallel ping jobs instead of sequential testing
