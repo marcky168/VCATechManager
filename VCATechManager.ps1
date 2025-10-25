@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.21"  # Menu loop optimization for smoother UX
+$version = "1.22"  # Code cleanup and optimization
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -40,7 +40,7 @@ function Get-ADSecureCredential {
     if (Test-Path $CredPath) {
         try {
             $Cred = Import-Clixml -Path $CredPath -ErrorAction Stop
-            # You could add a check here: if (Test-ADCredentials $Cred) { return $Cred }
+            if (Test-ADCredentials $Cred) { return $Cred }
         } catch {
             Write-Status "Failed to load saved credentials: $($_.Exception.Message)" Yellow
             Write-Log "Failed to load saved credentials: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
@@ -394,7 +394,6 @@ try {
             Write-Host "Failed to install PoshRSJob: $($_.Exception.Message)" -ForegroundColor Red
             Write-Log "PoshRSJob installation error: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
             # Optionally exit or continue without the module
-            # return  # Uncomment to skip if installation fails
         }
     }
     # Import required modules with try-catch
