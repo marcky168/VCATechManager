@@ -246,6 +246,7 @@ function Sync-Repo {
     Write-Host "Files to sync: $($compareData.files.Count)" -ForegroundColor Green
 
     $updatedFiles = 0
+    $scriptUpdated = $false
     foreach ($file in $compareData.files) {
         $path = $file.filename
         $status = $file.status
@@ -266,6 +267,9 @@ function Sync-Repo {
                 Write-Host "Downloaded/Updated: $path" -ForegroundColor Green
                 Write-Log "Downloaded/Updated: $path"
                 $updatedFiles++
+                if ($path -eq "VCATechManager.ps1") {
+                    $scriptUpdated = $true
+                }
             } catch {
                 Write-Host "Failed to download $path : $($_.Exception.Message)" -ForegroundColor Red
             }
@@ -276,8 +280,11 @@ function Sync-Repo {
     $remoteCommitSha | Set-Content $lastCommitShaFile
     Write-Host "Repo sync complete. Updated $updatedFiles files." -ForegroundColor Green
     Write-Log "Repo sync complete"
-    if ($updatedFiles -gt 0) {
-        Write-Host "Files were updated. Please restart the script to use the new version." -ForegroundColor Yellow
+    if ($scriptUpdated) {
+        Write-Host "VCATechManager.ps1 has been updated. Relaunching in 3 seconds..." -ForegroundColor Cyan
+        Write-Log "Relaunching script due to update"
+        Start-Sleep -Seconds 3
+        Start-Process -FilePath "$PSScriptRoot\VCATechManager.cmd" -WorkingDirectory $PSScriptRoot
         exit
     }
 }
