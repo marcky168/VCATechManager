@@ -18,7 +18,7 @@ if (Test-Path $credPathAD) {
         $ADCredential = Import-Clixml -Path $credPathAD -ErrorAction Stop
     } catch {
         $ADCredential = $null
-        Write-Host "Failed to load saved AD credentials: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Status "Failed to load saved AD credentials: $($_.Exception.Message)" Yellow
         Write-Log "Failed to load saved AD credentials: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
     }
 } else {
@@ -26,19 +26,19 @@ if (Test-Path $credPathAD) {
 }
 
 if (-not $ADCredential) {
-    Write-Host "AD Credential not found. Prompting for credentials..." -ForegroundColor Yellow
+    Write-Status "AD Credential not found. Prompting for credentials..." Yellow
     try {
         $ADCredential = Get-Credential -Message "Enter AD domain credentials (e.g., vcaantech\youruser)" -ErrorAction Stop
         if ($ADCredential) {
             $ADCredential | Export-Clixml -Path $credPathAD -Force -ErrorAction Stop
-            Write-Host "AD credentials saved to $credPathAD." -ForegroundColor Green
+            Write-Status "AD credentials saved to $credPathAD." Green
             Write-Log "AD credentials saved to $credPathAD."
         } else {
-            Write-Host "No AD credentials provided. Some features may not work." -ForegroundColor Yellow
+            Write-Status "No AD credentials provided. Some features may not work." Yellow
             Write-Log "No AD credentials provided at startup."
         }
     } catch {
-        Write-Host "Error prompting for AD credentials: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Status "Error prompting for AD credentials: $($_.Exception.Message)" Red
         Write-Log "Error prompting for AD credentials: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
     }
 }
@@ -85,9 +85,14 @@ function Export-Results {
         if ($Results.Count -gt 10) {
             Write-Progress -Activity "Exporting results" -Completed
         }
-        Write-Host "Exported to $exportPath." -ForegroundColor Green
+        Write-Status "Exported to $exportPath." Green
         Write-Log "Exported $BaseName results for AU $AU"
     }
+}
+
+# Helper function for centralized Write-Host customization
+function Write-Status ($Message, $Color = "White") {
+    Write-Host $Message -ForegroundColor $Color
 }
 
 # Helper function to ensure Outlook is running for email creation
@@ -95,12 +100,12 @@ function Start-OutlookIfNeeded {
     try {
         $outlookProcess = Get-Process -Name outlook -ErrorAction SilentlyContinue
         if (-not $outlookProcess) {
-            Write-Host "Starting Outlook..." -ForegroundColor Yellow
+            Write-Status "Starting Outlook..." Yellow
             Start-Process outlook.exe
             Start-Sleep -Seconds 5  # Wait for Outlook to start
         }
     } catch {
-        Write-Host "Could not start Outlook: $($_.Exception.Message). Email creation may fail if Outlook is not installed." -ForegroundColor Yellow
+        Write-Status "Could not start Outlook: $($_.Exception.Message). Email creation may fail if Outlook is not installed." Yellow
         Write-Log "Failed to start Outlook: $($_.Exception.Message)"
     }
 }
