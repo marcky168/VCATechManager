@@ -246,9 +246,12 @@ function Sync-Repo {
 
     # Compare commits
     $compareUrl = "https://api.github.com/repos/$owner/$repo/compare/$($localCommitSha)...$($remoteCommitSha)"
+    Write-Host "Compare URL: $compareUrl" -ForegroundColor Cyan
     $compareResponse = Invoke-GitHubApi -url $compareUrl -headers $apiHeaders -pat $pat -patPath $patPath
     $compareData = ConvertFrom-Json $compareResponse.Content
+    Write-Host "Files to sync: $($compareData.files.Count)" -ForegroundColor Green
 
+    $updatedFiles = 0
     foreach ($file in $compareData.files) {
         $path = $file.filename
         $status = $file.status
@@ -259,6 +262,7 @@ function Sync-Repo {
                 Remove-Item $fullPath -Force
                 Write-Host "Deleted: $path" -ForegroundColor Yellow
                 Write-Log "Deleted: $path"
+                $updatedFiles++
             }
         } elseif ($status -eq "added" -or $status -eq "modified") {
             $downloadUrl = $file.raw_url
@@ -267,6 +271,7 @@ function Sync-Repo {
                 Invoke-WebRequest -Uri $downloadUrl -OutFile $fullPath -Headers $downloadHeaders -UseBasicParsing
                 Write-Host "Downloaded/Updated: $path" -ForegroundColor Green
                 Write-Log "Downloaded/Updated: $path"
+                $updatedFiles++
             } catch {
                 Write-Host "Failed to download $path : $($_.Exception.Message)" -ForegroundColor Red
             }
@@ -275,8 +280,12 @@ function Sync-Repo {
 
     # Update last commit SHA
     $remoteCommitSha | Set-Content $lastCommitShaFile
-    Write-Host "Repo sync complete." -ForegroundColor Green
+    Write-Host "Repo sync complete. Updated $updatedFiles files." -ForegroundColor Green
     Write-Log "Repo sync complete"
+    if ($updatedFiles -gt 0) {
+        Write-Host "Files were updated. Please restart the script to use the new version." -ForegroundColor Yellow
+        exit
+    }
 }
 
 # Set global script root for use in functions
