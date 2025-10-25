@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.20"  # Final optimizations complete
+$version = "1.21"  # Menu loop optimization for smoother UX
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -2643,7 +2643,7 @@ if ($servers) {
         }
 
         $menuActive = $true
-        while ($menuActive) {
+        do {
             # Calculate hospital time dynamically for each prompt
             $hospitalTime = $null
             if ($HospitalInfo -and $HospitalInfo.'Time Zone') {
@@ -2679,7 +2679,6 @@ if ($servers) {
 
             switch ($choice) {
                 "0" {
-                    Clear-Host
                     Write-Host "Returning to AU prompt..." -ForegroundColor Green
                     $menuActive = $false
                     # Reset window title to base
@@ -3108,15 +3107,25 @@ if ($servers) {
                         }
                     }
                 }
+                "h" {
+                    Clear-Host
+                    Write-Host "`n--- Main Menu for AU $AU (v$version) ---" -ForegroundColor Green
+                    foreach ($key in ($menuOptions.Keys | Sort-Object @{Expression={ 
+                        $match = [regex]::Match($_, '^(\d+)'); 
+                        if ($match.Success) { [int]$match.Groups[1].Value } else { 999 }
+                    }}, @{Expression={$_}})) {
+                        Write-Host "$key. $($menuOptions[$key])" -ForegroundColor Cyan
+                    }
+                }
                 "999" {
                     # New Session
                     Start-Process -FilePath "$PSScriptRoot\VCATechManager.cmd" -WorkingDirectory $PSScriptRoot
                 }
                 default {
-                    Write-Host "Invalid choice. Please select 0-16, 19, 81-83, 999." -ForegroundColor Red
+                    Write-Host "Invalid choice. Please select 0-16, 19, 81-83, 999 or 'h' for menu." -ForegroundColor Red
                 }
             }
-        }
+        } while ($menuActive)
     }
 } catch {
     Add-Content -Path $logPath -Value "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")] Error during script execution: $($_.Exception.Message)"
