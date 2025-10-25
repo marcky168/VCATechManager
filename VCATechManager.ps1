@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.22"  # Code cleanup and optimization
+$version = "1.23"  # Runtime error fixes and function ordering
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -10,6 +10,12 @@ Clear-Host
 
 # Configurable Logging: Default to verbose logging enabled
 $verboseLogging = $true
+
+# New: Logging toggle and path (create early for initial errors)
+$logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
+# Create log file early to ensure it exists
+New-Item -Path $logPath -ItemType File -Force | Out-Null
 
 # Helper function for centralized Write-Host customization
 function Write-Status ($Message, $Color = "White") {
@@ -27,6 +33,18 @@ function Write-ConditionalLog {
     param([string]$Message)
     if ($verboseLogging) {
         Add-Content -Path $logPath -Value "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")] $Message"
+    }
+}
+
+# Function to validate AD credentials with -ErrorAction Stop
+function Test-ADCredentials {
+    param([pscredential]$Credential)
+    try {
+        Get-ADDomain -Credential $Credential -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        Write-Log "Test-ADCredentials failed: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
+        return $false
     }
 }
 
@@ -82,13 +100,6 @@ if ($scriptPath) {
 } else {
     $lastWritten = "N/A"
 }
-
-# New: Logging toggle and path (create early for initial errors)
-$verboseLogging = $false
-$logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
-# Create log file early to ensure it exists
-New-Item -Path $logPath -ItemType File -Force | Out-Null
 
 # Helper functions moved outside try block for reliability
 
@@ -163,18 +174,6 @@ function Get-CachedServers {
         Write-Host "Failed to query servers for AU $AU. Error: $($_.Exception.Message)" -ForegroundColor Red
         Write-Log "Failed to query servers for AU $AU. Error: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
         return @()
-    }
-}
-
-# Function to validate AD credentials with -ErrorAction Stop
-function Test-ADCredentials {
-    param([pscredential]$Credential)
-    try {
-        Get-ADDomain -Credential $Credential -ErrorAction Stop | Out-Null
-        return $true
-    } catch {
-        Write-Log "Test-ADCredentials failed: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
-        return $false
     }
 }
 
