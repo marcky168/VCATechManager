@@ -1,3 +1,361 @@
+# Consolidated System Monitoring Functions
+# Contains: Get-DiskUsage, Get-MemoryUsage, Get-UPSStatus
+
+#Harold.Kammermeyer@vca.com
+
+function Get-DiskUsage {
+    Param (
+        [parameter(
+            ValueFromPipeline,
+            ValueFromPipelineByPropertyName,
+            Position = 0)]
+        [string[]]$ComputerName,
+        [pscredential]$Credential,
+        [CimSession[]]$CimSession
+    )
+    begin {
+        if (-not $CimSession) {
+            foreach ($ComputerName_Item in $ComputerName) {
+                try {
+                    $CimSession = $CimSession + (New-CimSession -ComputerName $ComputerName_Item -Credential $Credential -ErrorAction Stop)
+                }
+                catch {
+                    Write-Warning "[$ComputerName_Item] Disk Check: $($PSItem.Exception.Message)"
+                }
+            }
+        }
+    }
+    process {
+        foreach ($CimSession_Item in $CimSession) {
+            try {
+                $Response = Get-CimInstance -CimSession $CimSession_Item -ClassName Win32_LogicalDisk -Filter 'DriveType=3' -Property Name, FileSystem, FreeSpace, Size -OperationTimeoutSec 10 -ErrorAction Stop
+
+                foreach ($LogicalDisk_Item in $Response) {
+                    [pscustomobject]@{
+                        ComputerName   = $LogicalDisk_Item.PSComputerName
+                        Name           = $LogicalDisk_Item.Name
+                        FileSystem     = $LogicalDisk_Item.FileSystem
+                        FreeGB         = [decimal]('{0:N2}' -f ($LogicalDisk_Item.FreeSpace / 1GB))
+                        'FreeSpace(%)' = [decimal]('{0:N2}' -f ((($LogicalDisk_Item.FreeSpace) / ($LogicalDisk_Item.Size)) * 100))
+                        CapacityGB     = [decimal]('{0:N2}' -f ($LogicalDisk_Item.Size / 1GB))
+                    }
+                }
+            }
+            catch {
+                Write-Warning "[$($CimSession_Item.ComputerName)] Disk Check: $($PSItem.Exception.Message)"
+            }
+        }
+    }
+    end {
+        if ($ComputerName -and $CimSession) { Remove-CimSession -CimSession $CimSession -ErrorAction Ignore }
+    }
+} #function
+
+#Harold.Kammermeyer@vca.com
+
+function Get-MemoryUsage {
+    Param (
+        [parameter(
+            ValueFromPipeline,
+            ValueFromPipelineByPropertyName,
+            Position = 0)]
+        [string[]]$ComputerName,
+        [pscredential]$Credential,
+        [CimSession[]]$CimSession
+    )
+    begin {
+        if (-not $CimSession) {
+            foreach ($ComputerName_Item in $ComputerName) {
+                try {
+                    $CimSession = $CimSession + (New-CimSession -ComputerName $ComputerName_Item -Credential $Credential -ErrorAction Stop)
+                }
+                catch {
+                    Write-Warning "[$ComputerName_Item] Memory Check: $($PSItem.Exception.Message)"
+                }
+            }
+        }
+    }
+    process {
+        foreach ($CimSession_Item in $CimSession) {
+            try {
+                $Response = Get-CimInstance -CimSession $CimSession_Item -ClassName Win32_OperatingSystem -Property TotalVisibleMemorySize, FreePhysicalMemory, LastBootUpTime -OperationTimeoutSec 10 -ErrorAction Stop
+                [pscustomobject]@{
+                    ComputerName    = $Response.PSComputerName
+                    'UsedMemory(%)' = [decimal]('{0:N2}' -f (100 - (($Response.FreePhysicalMemory / $Response.TotalVisibleMemorySize) * 100)))
+                    SysMemGB        = [decimal]('{0:N2}' -f ($Response.TotalVisibleMemorySize / 1MB))
+                    BootUpTime      = $Response.LastBootUpTime
+                }
+            }
+            catch {
+                Write-Warning "[$($CimSession_Item.ComputerName)] Memory Check: $($PSItem.Exception.Message)"
+            }
+        }
+    }
+    end {
+        if ($ComputerName -and $CimSession) { Remove-CimSession -CimSession $CimSession -ErrorAction Ignore }
+    }
+} #function
+
+#Harold.Kammermeyer@vca.com
+#Requires -Version 3
+#Requires -Modules PoshRSJob
+## Get Windows Network Adapter
+
+function Get-WindowsNetwork {
+    [CmdletBinding()]
+    param(
+        [parameter(
+            ValueFromPipeline,
+            ValueFromPipelineByPropertyName,
+            Position = 0)]
+        [alias('Name')]
+        [ValidateNotNullOrEmpty()]
+        [String[]]$ComputerName = $env:ComputerName,
+        [PSCredential]$Credential
+    )
+
+    begin {
+        # Remove empty lines
+        $ComputerName = $ComputerName | Where-Object { $PSItem }
+        # Remove duplicates
+        $ComputerName = $ComputerName.ToLower() | Select-Object -Unique
+    }
+    process {
+        $ComputerName | Start-RSJob -Name 'WindowsNetworkJob' -VariablesToImport Credential -Throttle 64 -ScriptBlock {
+            $ComputerName_Item = $_
+            try {
+                $Session = New-CimSession -ComputerName $ComputerName_Item -Credential $Credential -OperationTimeoutSec 10 -ErrorAction Stop
+
+                $CimParams = @{
+                    CimSession          = $Session
+                    ClassName           = 'Win32_NetworkAdapterConfiguration'
+                    Property            = @(
+                        'Index'
+                        'Description'
+                        'DNSHostName'
+                        'DNSServerSearchOrder'
+                        'IPAddress'
+                        'DefaultIPGateway'
+                        'IPSubnet'
+                        'DHCPEnabled'
+                        'MACAddress'
+                    )
+                    Filter              = 'IPEnabled=True'
+                    OperationTimeoutSec = 10
+                }
+                $Response = Get-CimInstance @CimParams
+
+                $CimParams2 = @{
+                    CimSession          = $Session
+                    ClassName           = 'Win32_OperatingSystem'
+                    Property            = 'Caption'
+                    OperationTimeoutSec = 10
+                }
+                $Response2 = Get-CimInstance @CimParams2
+            }
+            catch {
+                $ErrorMessage = $PSItem.Exception.Message
+            }
+            $Response | ForEach-Object {
+                [pscustomobject]@{
+                    Name             = $ComputerName_Item
+                    OperatingSystem  = $Response2.Caption
+                    Index            = $PSItem.Index
+                    Description      = $PSItem.Description
+                    DNS              = $PSItem.DNSServerSearchOrder -join ", "
+                    IP1              = @($PSItem.IPAddress)[0]
+                    IP2              = @($PSItem.IPAddress)[1]
+                    DefaultIPGateway = $PSItem | Select-Object -ExpandProperty DefaultIPGateway
+                    IPSubnet         = $PSItem.IPSubnet -join ", "
+                    DHCPEnabled      = $PSItem.DHCPEnabled
+                    MACAddress       = $PSItem.MACAddress
+                    Error            = $ErrorMessage
+                }
+            }
+        } | Out-Null #Start-RSJob ScriptBlock
+    } #process
+    end {
+        Get-RSJob -Name 'WindowsNetworkJob' | Wait-RSJob -ShowProgress -Timeout 600 | Receive-RSJob
+        Get-RSJob -Name 'WindowsNetworkJob' | Remove-RSJob
+    }
+} #function
+
+#Harold.Kammermeyer@vca.com
+#Requires -Version 3
+#Requires -Modules ActiveDirectory
+
+function whatdisk {
+    param(
+        [string[]]$ComputerName
+    )
+    if ($Computername -match '-ns[0-9]') {
+        $Session = New-CimSession -ComputerName $ComputerName -ErrorAction SilentlyContinue
+        $VDiskMounts = Get-Disk -CimSession $Session | Where-Object FriendlyName -eq 'Msft Virtual Disk' |
+            ForEach-Object {
+                $PSItem | Select-Object -Property PSComputerName,
+                @{n='Name';e={(Get-ADUser -Filter "SID -like '$($PSItem.Location -match "S-\d-\d+-(\d+-){1,14}\d+" | Out-Null; $Matches[0])'").Name}},
+                @{n='SamAccountName';e={(Get-ADUser -Filter "SID -like '$($PSItem.Location -match "S-\d-\d+-(\d+-){1,14}\d+" | Out-Null; $Matches[0])'").SamAccountName}},
+                DiskNumber,
+                @{n='SID';e={$PSItem.Location -match "S-\d-\d+-(\d+-){1,14}\d+" | Out-Null; $Matches[0]}}, Location
+            }
+        $VDiskMounts
+    }
+    if ($Session) { Remove-CimSession -CimSession $Session -ErrorAction SilentlyContinue }
+} #function
+
+#Harold.Kammermeyer@vca.com
+#Requires -Version 3
+#Requires -Modules ActiveDirectory
+
+function whatusers {
+    param(
+        [string[]]$ComputerName,
+        [pscredential]$Credential
+    )
+    begin {
+        # retrieve vdisk mounts from cluster NSs
+        if ($Computername -match '-ns[0-9]|-ra[0-9]') {
+            $Cluster = $true
+            $DiskParams = @{
+                ComputerName        = $ComputerName
+                OperationTimeoutSec = 15
+            }
+            if ($Credential) { $DiskParams.Credential = $Credential }
+            $DiskSession = New-CimSession @DiskParams #-ErrorAction SilentlyContinue
+            $VDiskMountsRaw = Get-Disk -CimSession $DiskSession -ThrottleLimit 10 | Where-Object FriendlyName -eq 'Msft Virtual Disk'
+
+            if ($VDiskMountsRaw) {
+                $LDAPFilter = -join @($VDiskMountsRaw).foreach({ "(objectSID=$([regex]::Match($PSItem.Location, '(?i)S-\d-\d+-(\d+-){1,14}\d+').Value))" })
+                $UserADList = Get-ADUser -LDAPFilter "(|$LDAPFilter)"
+
+                $VDiskMounts = $VDiskMountsRaw | ForEach-Object {
+                    Clear-Variable -Name UserADDisk, UserSID -ErrorAction Ignore
+
+                    $UserSID = [regex]::Match($PSItem.Location, '(?i)S-\d-\d+-(\d+-){1,14}\d+').Value
+                    $UserADDisk = @($UserADList).where({ $_.SID -eq $UserSID })
+
+                    [PSCustomObject]@{
+                        Computer       = $PSItem.PSComputerName
+                        Name           = $UserADDisk.Name
+                        SamAccountName = $UserADDisk.SamAccountName
+                        DiskNumber     = $PSItem.DiskNumber
+                        SID            = $UserSID
+                        Location       = $PSItem.Location
+                    }
+                } #foreach
+            }
+        } # if cluster
+    }
+    process {
+        $ComputerName | Start-RSJob -Name 'whatusersjobs' -Throttle 10 -ScriptBlock {
+            param($ComputerName_Item)
+            Import-Module -Name "$using:global:ScriptRoot\Private\lib\PSTerminalServices"
+
+            try {
+                Get-TSSession -ComputerName $ComputerName_Item -ErrorAction Stop |
+                Select-Object -Property Server, UserName, ClientName, IPAddress, State, IdleTime, LoginTime, CurrentTime, SessionId
+            }
+            catch {
+                Write-Warning "[$ComputerName_Item] $($PSItem.Exception.Message)"
+            }
+        } | Out-Null
+
+        $TSSession = Get-RSJob -Name 'whatusersjobs' | Wait-RSJob -ShowProgress -Timeout 120 | Receive-RSJob
+
+        if ($TSSession.UserName -ne '') {
+            $LDAPFilter = -join ($TSSession.UserName.foreach({ if ($PSItem) { "(sAMAccountName=$PSItem)" } }))
+            $UserADList = Get-ADUser -LDAPFilter "(|$LDAPFilter)" -Properties Department, Title, City, State, telephoneNumber, SID -ErrorAction Ignore
+        }
+
+        $TSSessionResults = foreach ($TSSession_Item in $TSSession) {
+            Clear-Variable -Name UserAD -ErrorAction Ignore
+
+            if ($Cluster) {
+                # Collect user sessions to find any 'orphaned' UPDs (in next code segment)
+                if (-not $TSSessionUsers) { [System.Collections.ArrayList]$TSSessionUsers = @() }
+                if ($TSSession_Item.UserName) { $TSSessionUsers.Add($TSSession_Item.UserName) | Out-Null }
+            }
+            if ($TSSession_Item.UserName -and $TSSession_Item.UserName -ne 'webclock') {
+                $UserAD = @($UserADList).where({ $PSItem.SamAccountName -eq $TSSession_Item.UserName })
+            }
+            [PSCustomObject]@{
+                Computer    = $TSSession_Item.Server.ServerName
+                SessionId   = $TSSession_Item.SessionId
+                VDiskMount  = $(if ($VDiskMounts) { (@($VDiskMounts).Where( { $PSItem.SID -eq $UserAD.SID })).Computer })
+                VDiskNumber = $(if ($VDiskMounts) { (@($VDiskMounts).Where( { $PSItem.SID -eq $UserAD.SID })).DiskNumber })
+                UserName    = $TSSession_Item.UserName
+                Title       = $(if ($UserAD.Title -like '*manager*' -or $UserAD.Title -like '*director*') { '*' + $UserAD.Title } else { $UserAD.Title })
+                ClientName  = $TSSession_Item.ClientName
+                IPAddress   = $TSSession_Item.IPAddress
+                State       = $TSSession_Item.State
+                IdleTime    = $(if ($TSSession_Item.IdleTime) { [timespan]('{0:dd}:{0:hh}:{0:mm}' -f $TSSession_Item.IdleTime) })
+                LoginTime   = $TSSession_Item.LoginTime
+                CurrentTime = $TSSession_Item.CurrentTime
+                Department  = $UserAD.Department
+                Location    = $(if ($UserAD.City) { $UserAD.City + ', ' + $UserAD.State })
+                Phone       = $UserAD.telephoneNumber
+                SID         = $UserAD.SID
+            }
+        } #foreach
+
+        # Check cluster NSs for mounted UPDs (vhdx) with no associated user session
+        if ($Cluster -and $VDiskMounts -and $TSSessionResults.UserName) {
+            $VDiskResults = $VDiskMounts | Where-Object SamAccountName -NotIn $TSSessionUsers | ForEach-Object {
+                Clear-Variable -Name UserAD -ErrorAction Ignore
+                if ($PSItem.SamAccountName) {
+                    $UserAD = Get-ADUser -Identity $PSItem.SamAccountName -Properties Department, Title, City, State, telephoneNumber -ErrorAction Ignore
+                    [PSCustomObject]@{
+                        Computer    = $PSItem.Computer
+                        SessionId   = '99999'
+                        VDiskMount  = $PSItem.Computer
+                        VDiskNumber = $PSItem.DiskNumber
+                        UserName    = $PSItem.SamAccountName
+                        Title       = $(if ($UserAD.Title -like '*manager*' -or $UserAD.Title -like '*director*') { '*' + $UserAD.Title } else { $UserAD.Title })
+                        ClientName  = 'User in logout process or'
+                        IPAddress   = 'Potential orphan VHD'
+                        State       = ''
+                        IdleTime    = ''
+                        LoginTime   = ''
+                        CurrentTime = ''
+                        Department  = $UserAD.Department
+                        Location    = $(if ($UserAD.City) { $UserAD.City + ', ' + $UserAD.State })
+                        Phone       = $UserAD.telephoneNumber
+                        SID         = $PSItem.SID
+                    }
+                }
+            }
+            if (-not $VDiskResults) {
+                [PSCustomObject]@{
+                    Computer    = Convert-VcaAu -AU (@($ComputerName)[0]) -Prefix 'AU' -Suffix '' -NoLeadingZeros
+                    SessionId   = ''
+                    VDiskMount  = ''
+                    VDiskNumber = ''
+                    UserName    = ''
+                    Title       = ''
+                    ClientName  = 'No orphan disks found'
+                    IPAddress   = ''
+                    State       = ''
+                    IdleTime    = ''
+                    LoginTime   = ''
+                    CurrentTime = ''
+                    Department  = ''
+                    Location    = ''
+                    Phone       = ''
+                    SID         = ''
+                }
+            }
+            else {
+                Write-Output $VDiskResults
+            }
+        }
+        Write-Output $TSSessionResults
+    }
+    end {
+        if ($DiskSession) { Remove-CimSession -CimSession $DiskSession -ErrorAction Ignore }
+        Get-RSJob -Name 'whatusersjobs' | Remove-RSJob
+    }
+} #function
+
 #Harold.Kammermeyer@vca.com
 #v.191029
 #Requires -Version 3
@@ -23,12 +381,12 @@ workflow Get-UpsStatus {
         {
             if(ServicePointManager.ServerCertificateValidationCallback ==null)
             {
-                ServicePointManager.ServerCertificateValidationCallback += 
+                ServicePointManager.ServerCertificateValidationCallback +=
                     delegate
                     (
-                        Object obj, 
-                        X509Certificate certificate, 
-                        X509Chain chain, 
+                        Object obj,
+                        X509Certificate certificate,
+                        X509Chain chain,
                         SslPolicyErrors errors
                     )
                     {
@@ -72,7 +430,7 @@ workflow Get-UpsStatus {
             elseif ($MgmtCard -eq 'HP UPS Management Module') {
                 $UpsAbout = Invoke-WebRequest -Uri "http://$using:ups/data_ident.htm?tabID=0"
                 $UpsAbout2 = $UpsAbout.Content -replace 'r\d{1,2}c\d\^', '' -split '\^txt\|'
-                $UpsAbout = Invoke-WebRequest -Uri "http://$using:ups/data_ident.htm?tabID=1" 
+                $UpsAbout = Invoke-WebRequest -Uri "http://$using:ups/data_ident.htm?tabID=1"
                 $UpsAbout3 = $UpsAbout.Content -replace 'r\d{1,2}c\d\^', '' -split '\^txt\|'
                 $UpsStatus = Invoke-WebRequest -Uri "http://$using:ups/data_param.htm?tabID=0"
                 $UpsStatusP = $UpsStatus.Content -replace 's\dr\d{1,2}c\d{1,2}\^', '' -replace '1\^icon\|', '' -replace '\d\^icon\|', '' -split '\^txt\|'
@@ -173,8 +531,8 @@ workflow Get-UpsStatus {
                 $UpsAbout2 =
                 Model:Smart-UPS X 3000
                 SKU:SMX3000LVNC
-                Serial Number:AS1545343691 
-                Firmware Revision:UPS 07.4 (ID1003) 
+                Serial Number:AS1545343691
+                Firmware Revision:UPS 07.4 (ID1003)
                 Manufacture Date:11/08/2015
                 Apparent Power Rating:2880 VA
                 Real Power Rating:2700 W
