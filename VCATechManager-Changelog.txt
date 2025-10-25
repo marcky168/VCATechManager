@@ -2,6 +2,11 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.17 - 2025-10-24
++ Fixed SHA trimming to prevent malformed URLs in GitHub API calls
++ Resolved 404 errors caused by trailing newlines in commit SHAs
++ Improved URL construction reliability in sync functions
+
 v1.16 - 2025-10-24
 + Fixed User-Agent header to dynamically use current script version
 + Improved consistency in version handling across sync functions
