@@ -2,6 +2,11 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.23 - 2025-10-25
++ Fixed runtime errors: reordered function definitions to resolve null log path and unrecognized function errors
++ Moved logging initialization and Test-ADCredentials function before early credential loading
++ Ensured proper dependency order for script startup reliability
+
 v1.22 - 2025-10-24
 + Code cleanup: removed duplicate variables, commented code, and placeholders
 + Implemented credential validation in Get-ADSecureCredential function
