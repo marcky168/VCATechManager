@@ -1,13 +1,7 @@
 # Combined PowerShell Script with Menu Options
-# Test update detection - minor changes.
-
-# Modification Log:
-# 2025-10-10: Enhanced option 1 with ARP table viewer using Get-NetNeighbor via Invoke-Command on selected servers. Author: Grok Code Agent.
-# 2025-09-19: Enhanced option 5 with parallel Get-TSSession check including ClientIP from event logs; added VNC/Shadow prompts for active users (VNC to client IP via $PSScriptRoot\Private\bin\vncviewer.exe), fallback to event logs. Rationale: Prioritize live actions for better UX and connect to client workstations. Author: Grok. Tested: Isolated snippet passes for sample AU 966.
-# 2025-01-01: Updated ListADUsersAndCheckLogon function for parallel active session check with VNC/Shadow prompts, fallback to User-LogonCheck. Added try-catch, Write-Log, Write-Progress. Bumped version to 1.6. Author: Grok.
 
 # Set version
-$version = "1.14"  # Optimized sync with GitHub Compare API and version checks
+$version = "1.15"  # Final optimizations for GitHub sync and auto-reload
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"

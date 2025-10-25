@@ -2,6 +2,12 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.15 - 2025-10-24
++ Added auto-reload functionality after sync updates to ensure new script version runs immediately
++ Enhanced debug logging in sync process for better troubleshooting
++ Cleaned up modification logs from script header
++ Final optimizations for GitHub sync reliability
+
 v1.14 - 2025-10-24
 + Optimized repo sync using GitHub Compare Two Commits API to eliminate local SHA-1 hashing and only download/process changed files, significantly improving performance
 + Added version check at startup to fetch remote version and skip sync when up to date, reducing launch time
