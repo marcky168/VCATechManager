@@ -2,6 +2,10 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.19 - 2025-10-24
++ Added Write-Status function for centralized Write-Host output management
++ Replaced sample Write-Host calls with Write-Status for better maintainability
+
 v1.18 - 2025-10-24
 + Final version with all major optimizations implemented
 + Comprehensive performance improvements for launch and sync operations
