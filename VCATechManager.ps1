@@ -11,37 +11,9 @@ Clear-Host
 # Configurable Logging: Default to verbose logging enabled
 $verboseLogging = $true
 
-# Load credentials early with expanded try-catch and logging
+# Load credentials early with centralized function
 $credPathAD = "$PSScriptRoot\Private\vcaadcred.xml"
-if (Test-Path $credPathAD) {
-    try {
-        $ADCredential = Import-Clixml -Path $credPathAD -ErrorAction Stop
-    } catch {
-        $ADCredential = $null
-        Write-Status "Failed to load saved AD credentials: $($_.Exception.Message)" Yellow
-        Write-Log "Failed to load saved AD credentials: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
-    }
-} else {
-    $ADCredential = $null
-}
-
-if (-not $ADCredential) {
-    Write-Status "AD Credential not found. Prompting for credentials..." Yellow
-    try {
-        $ADCredential = Get-Credential -Message "Enter AD domain credentials (e.g., vcaantech\youruser)" -ErrorAction Stop
-        if ($ADCredential) {
-            $ADCredential | Export-Clixml -Path $credPathAD -Force -ErrorAction Stop
-            Write-Status "AD credentials saved to $credPathAD." Green
-            Write-Log "AD credentials saved to $credPathAD."
-        } else {
-            Write-Status "No AD credentials provided. Some features may not work." Yellow
-            Write-Log "No AD credentials provided at startup."
-        }
-    } catch {
-        Write-Status "Error prompting for AD credentials: $($_.Exception.Message)" Red
-        Write-Log "Error prompting for AD credentials: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
-    }
-}
+$ADCredential = Get-ADSecureCredential -CredPath $credPathAD
 
 # Get script path and last write time
 $scriptPath = $MyInvocation.MyCommand.Path
@@ -88,6 +60,47 @@ function Export-Results {
         Write-Status "Exported to $exportPath." Green
         Write-Log "Exported $BaseName results for AU $AU"
     }
+}
+
+function Get-ADSecureCredential {
+    param(
+        [string]$CredPath,
+        [string]$PromptMessage = "Enter AD domain credentials (e.g., vcaantech\youruser)"
+    )
+
+    # 1. Attempt to Load Saved Credential
+    if (Test-Path $CredPath) {
+        try {
+            $Cred = Import-Clixml -Path $CredPath -ErrorAction Stop
+            # You could add a check here: if (Test-ADCredentials $Cred) { return $Cred }
+        } catch {
+            Write-Status "Failed to load saved credentials: $($_.Exception.Message)" Yellow
+            Write-Log "Failed to load saved credentials: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
+        }
+    }
+
+    # 2. If Load Failed or Credential is Invalid, Prompt User
+    if (-not $Cred) {
+        Write-Status "AD Credential not found or failed to load. Prompting..." Yellow
+        try {
+            $Cred = Get-Credential -Message $PromptMessage -ErrorAction Stop
+
+            # 3. Save the new credential
+            if ($Cred) {
+                $Cred | Export-Clixml -Path $CredPath -Force -ErrorAction Stop
+                Write-Status "New credentials saved successfully." Green
+                Write-Log "New credentials saved to $CredPath"
+            } else {
+                Write-Status "No credentials provided. Some features may not work." Yellow
+                Write-Log "No credentials provided at prompt."
+            }
+        } catch {
+            Write-Status "Credential prompt cancelled or failed: $($_.Exception.Message)" Red
+            Write-Log "Credential prompt failed: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
+        }
+    }
+
+    return $Cred
 }
 
 # Helper function for centralized Write-Host customization
