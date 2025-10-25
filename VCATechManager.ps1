@@ -219,11 +219,11 @@ function Sync-Repo {
     $commitUrl = "https://api.github.com/repos/$owner/$repo/commits/$branch"
     $commitResponse = Invoke-GitHubApi -url $commitUrl -headers $apiHeaders -pat $pat -patPath $patPath
     $commitData = ConvertFrom-Json $commitResponse.Content
-    $remoteCommitSha = $commitData.sha
+    $remoteCommitSha = $commitData.sha.Trim()
     Write-Host "Remote commit SHA: $remoteCommitSha" -ForegroundColor Green
 
     # Load local last commit SHA
-    $localCommitSha = if (Test-Path $lastCommitShaFile) { Get-Content $lastCommitShaFile -Raw } else { "" }
+    $localCommitSha = if (Test-Path $lastCommitShaFile) { (Get-Content $lastCommitShaFile -Raw).Trim() } else { "" }
 
     if ($remoteCommitSha -eq $localCommitSha) {
         Write-Host "No changes detected. Skipping sync." -ForegroundColor Green
