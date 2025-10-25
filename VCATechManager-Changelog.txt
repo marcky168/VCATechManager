@@ -2,6 +2,10 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.20 - 2025-10-24
++ Added Get-ADSecureCredential function for centralized credential handling
++ Eliminated redundant credential logic and improved maintainability
+
 v1.19 - 2025-10-24
 + Added Write-Status function for centralized Write-Host output management
 + Replaced sample Write-Host calls with Write-Status for better maintainability
