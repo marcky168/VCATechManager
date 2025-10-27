@@ -12,6 +12,10 @@ v1.29 - 2025-10-27
 + Enhanced .gitignore with comprehensive security exclusions for credentials, reports, and sensitive data
 + Maintained backward compatibility: Default config values ensure functionality without config file
 + Improved error handling: Graceful fallback when configuration file is missing or invalid
++ VNC LAUNCH FIX: Added comprehensive error handling for VNC viewer executable corruption/incompatibility
++ Added Start-VNCViewer helper function with executable validation, file integrity checks, and detailed error messages
++ Enhanced VNC launch error handling across all script locations (main script, AD functions, and launcher)
++ Improved user experience with specific guidance for common VNC executable issues
 
 v1.28 - 2025-10-27
 + Enhanced hospital master data handling: Automatic secure download from internal SharePoint for VCA employees with valid domain credentials

@@ -1131,12 +1131,30 @@ else {
                                 Clear-Variable -Name WhatUsersSelection -ErrorAction Ignore
                                 $WhatUsers | Out-GridView -Title "#77 AU$(Convert-VcaAu -AU $ComputerName -Strip) - Total logged on users: $(($WhatUsers | Where-Object UserName -ne '').Count) - Select user to connect with VNC - v.$Version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Single -OutVariable WhatUsersSelection | Out-String
                                 if ($WhatUsersSelection.IPAddress) {
-                                    $VNCProcess = Start-Process "$PSScriptRoot\Private\bin\vncviewer.exe" -ArgumentList "$($WhatUsersSelection.IPAddress) -WarnUnencrypted=0" -PassThru
-                                    Start-Sleep -Milliseconds 500
+                                    $vncPath = "$PSScriptRoot\Private\bin\vncviewer.exe"
+                                    if (Test-Path $vncPath) {
+                                        try {
+                                            # Validate executable before launching
+                                            $fileInfo = Get-Item $vncPath -ErrorAction Stop
+                                            if ($fileInfo.Length -lt 1000) {
+                                                throw "VNC executable appears to be corrupted or incomplete (file size: $($fileInfo.Length) bytes)"
+                                            }
+                                            $VNCProcess = Start-Process $vncPath -ArgumentList "$($WhatUsersSelection.IPAddress) -WarnUnencrypted=0" -PassThru -ErrorAction Stop
+                                            Start-Sleep -Milliseconds 500
 
-                                    # Move mouse cursor to top of screen
-                                    if ($VNCProcess) {
-                                        [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point([System.Windows.Forms.Cursor]::Position.X, 0)
+                                            # Move mouse cursor to top of screen
+                                            if ($VNCProcess) {
+                                                [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point([System.Windows.Forms.Cursor]::Position.X, 0)
+                                            }
+                                        } catch {
+                                            $errorMessage = $_.Exception.Message
+                                            Write-Host "Failed to launch VNC viewer: $errorMessage" -ForegroundColor Red
+                                            if ($errorMessage -like "*not a valid application*") {
+                                                Write-Host "The VNC executable appears to be corrupted or incompatible. Please re-download it." -ForegroundColor Yellow
+                                            }
+                                        }
+                                    } else {
+                                        Write-Host "VNC viewer not found at $vncPath." -ForegroundColor Yellow
                                     }
                                 }
                             }

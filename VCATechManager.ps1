@@ -179,8 +179,75 @@ function Start-OutlookIfNeeded {
             Start-Sleep -Seconds 5  # Wait for Outlook to start
         }
     } catch {
-        Write-Status "Could not start Outlook: $($_.Exception.Message). Email creation may fail if Outlook is not installed." Yellow
+        Write-Status "Failed to start Outlook: $($_.Exception.Message)" Red
         Write-Log "Failed to start Outlook: $($_.Exception.Message)"
+    }
+}
+
+# Helper function for launching VNC with proper error handling
+function Start-VNCViewer {
+    param([string]$IPAddress, [string]$Username = "", [string]$Computer = "")
+
+    $vncPath = "$PSScriptRoot\Private\bin\vncviewer.exe"
+
+    # Check if VNC executable exists
+    if (-not (Test-Path $vncPath)) {
+        Write-Status "VNC viewer not found at $vncPath. Please ensure VNC viewer is installed in the correct location." Red
+        Write-Status "Expected path: $vncPath" Yellow
+        Write-Log "VNC viewer not found at $vncPath"
+        return $false
+    }
+
+    # Validate IP address
+    if (-not $IPAddress -or $IPAddress -eq "N/A" -or $IPAddress -eq "") {
+        Write-Status "No valid IP address provided for VNC connection." Red
+        Write-Log "Invalid IP address for VNC: '$IPAddress'"
+        return $false
+    }
+
+    # Validate executable integrity
+    try {
+        $fileInfo = Get-Item $vncPath -ErrorAction Stop
+        if ($fileInfo.Length -lt 1000) {  # Basic check for file size (VNC executables are typically > 1MB)
+            throw "VNC executable appears to be corrupted or incomplete (file size: $($fileInfo.Length) bytes)"
+        }
+    } catch {
+        Write-Status "VNC executable validation failed: $($_.Exception.Message)" Red
+        Write-Status "Please re-download or re-install the VNC viewer executable." Yellow
+        Write-Log "VNC executable validation failed: $($_.Exception.Message)"
+        return $false
+    }
+
+    # Attempt to launch VNC
+    try {
+        $argumentList = $IPAddress
+        if ($Username) {
+            $argumentList += " -UserName=$Username"
+        }
+
+        Start-Process -FilePath $vncPath -ArgumentList $argumentList -ErrorAction Stop
+        $userInfo = if ($Username) { "$Username on $Computer ($IPAddress)" } else { "$IPAddress" }
+        Write-Status "Launching VNC for $userInfo." Green
+        Write-Log "Launched VNC for $userInfo"
+        return $true
+    } catch {
+        $errorMessage = $_.Exception.Message
+        Write-Status "Failed to launch VNC viewer: $errorMessage" Red
+        Write-Log "VNC launch failed: $errorMessage"
+
+        # Provide specific guidance based on error type
+        if ($errorMessage -like "*not a valid application*") {
+            Write-Status "The VNC executable appears to be corrupted or incompatible with this OS." Yellow
+            Write-Status "Please download a fresh copy of the VNC viewer and place it at: $vncPath" Yellow
+        } elseif ($errorMessage -like "*access denied*") {
+            Write-Status "Access denied to VNC executable. Check file permissions." Yellow
+        } elseif ($errorMessage -like "*file not found*") {
+            Write-Status "VNC executable not found. Verify the path: $vncPath" Yellow
+        } else {
+            Write-Status "Unknown error launching VNC. Check the executable and try again." Yellow
+        }
+
+        return $false
     }
 }
 
@@ -1742,15 +1809,9 @@ try {
                 $SelectedUser | Format-List
                 $launchChoice = Read-Host "Launch VNC (v) or RDP Shadow (r) for $($SelectedUser.UserName) on $($SelectedUser.Computer)? (v/r/n)"
                 if ($launchChoice.ToLower() -eq 'v') {
-                    # Launch VNC
+                    # Launch VNC using helper function
                     $userIP = $SelectedUser.IPAddress
-                    if ($userIP -and $userIP -ne "N/A") {
-                        Start-Process "$PSScriptRoot\Private\bin\vncviewer.exe" -ArgumentList "$userIP"
-                        Write-Host "Launching VNC for $($SelectedUser.UserName) on $userIP." -ForegroundColor Green
-                        Write-Log "Launched VNC for $($SelectedUser.UserName) on $userIP"
-                    } else {
-                        Write-Host "No IP address available for VNC." -ForegroundColor Red
-                    }
+                    Start-VNCViewer -IPAddress $userIP -Username $SelectedUser.UserName -Computer $SelectedUser.Computer
                 } elseif ($launchChoice.ToLower() -eq 'r') {
                     # Launch RDP Shadow
                     Start-Process "mstsc.exe" -ArgumentList @("/v:$($SelectedUser.Computer)", "/shadow:$($SelectedUser.SessionId)", "/control")
@@ -1925,20 +1986,9 @@ try {
                 # Launch logic (only if selectedSession is set)
                 if ($selectedSession) {
                     if ($launchChoice -eq 'v') {
-                        # Launch VNC
-                        $vncPath = "$PSScriptRoot\Private\bin\vncviewer.exe"
-                        if (Test-Path $vncPath) {
-                            $userIP = $selectedSession.ClientIP
-                            if ($userIP -and $userIP -ne "N/A" -and $userIP -ne "") {
-                                Start-Process $vncPath -ArgumentList $userIP
-                                Write-Host "Launching VNC for $($selectedSession.UserName) on $userIP." -ForegroundColor Green
-                                Write-Log "Launched VNC for $($selectedSession.UserName) on $userIP"
-                            } else {
-                                Write-Host "No valid IP address available for VNC. Client IP: '$userIP'. Check DNS or session details." -ForegroundColor Red
-                            }
-                        } else {
-                            Write-Host "VNC viewer not found at $vncPath. Please verify the path." -ForegroundColor Yellow
-                        }
+                        # Launch VNC using helper function
+                        $userIP = $selectedSession.ClientIP
+                        Start-VNCViewer -IPAddress $userIP -Username $selectedSession.UserName -Computer $selectedSession.Server
                     } elseif ($launchChoice -eq 'r') {
                         # Launch RDP Shadow
                         Start-Process "mstsc.exe" -ArgumentList @("/v:$($selectedSession.Server)", "/shadow:$($selectedSession.SessionId)", "/control")

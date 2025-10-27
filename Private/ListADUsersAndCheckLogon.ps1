@@ -131,9 +131,23 @@ function ListADUsersAndCheckLogon {
                     if (Test-Path $vncPath) {
                         $userIP = $selectedSession.ClientIP
                         if ($userIP -and $userIP -ne "N/A" -and $userIP -ne "") {
-                            Start-Process $vncPath -ArgumentList $userIP
-                            Write-Host "Launching VNC for $($selectedSession.UserName) on $userIP." -ForegroundColor Green
-                            Write-Log "Launched VNC for $($selectedSession.UserName) on $userIP"
+                            try {
+                                # Validate executable before launching
+                                $fileInfo = Get-Item $vncPath -ErrorAction Stop
+                                if ($fileInfo.Length -lt 1000) {
+                                    throw "VNC executable appears to be corrupted or incomplete (file size: $($fileInfo.Length) bytes)"
+                                }
+                                Start-Process $vncPath -ArgumentList $userIP -ErrorAction Stop
+                                Write-Host "Launching VNC for $($selectedSession.UserName) on $userIP." -ForegroundColor Green
+                                Write-Log "Launched VNC for $($selectedSession.UserName) on $userIP"
+                            } catch {
+                                $errorMessage = $_.Exception.Message
+                                Write-Host "Failed to launch VNC viewer: $errorMessage" -ForegroundColor Red
+                                Write-Log "VNC launch failed: $errorMessage"
+                                if ($errorMessage -like "*not a valid application*") {
+                                    Write-Host "The VNC executable appears to be corrupted or incompatible. Please re-download it." -ForegroundColor Yellow
+                                }
+                            }
                         } else {
                             Write-Host "No IP address available for VNC." -ForegroundColor Red
                         }
