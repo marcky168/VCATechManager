@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.32"  # AD AUTHENTICATION FIX: Graceful credential fallback and retry logic
+$version = "1.33"  # POWERSHELL 5.1 COMPATIBILITY: Removed PnP.PowerShell dependency for SharePoint access
 
 # Load configuration file
 $configPath = "$PSScriptRoot\Private\config.json"
@@ -560,10 +560,10 @@ try {
         Write-Log "Imported module: PSTerminalServices"
         Import-Module -Name "$PSScriptRoot\Private\lib\ImportExcel" -ErrorAction Stop  # Added for HOSPITALMASTER loading
         Write-Log "Imported module: ImportExcel"
-        # Suppress PnP PowerShell update check
-        $env:PNPPOWERSHELL_UPDATECHECK = 'Off'
-        Import-Module -Name "$PSScriptRoot\Private\lib\PnP.PowerShell" -ErrorAction Stop  # Added for SharePoint access
-        Write-Log "Imported module: PnP.PowerShell"
+        # Suppress PnP PowerShell update check (commented out for PS 5.1 compatibility)
+        # $env:PNPPOWERSHELL_UPDATECHECK = 'Off'
+        # Import-Module -Name "$PSScriptRoot\Private\lib\PnP.PowerShell" -ErrorAction Stop  # Added for SharePoint access (requires PS 7.4.6+)
+        # Write-Log "Imported module: PnP.PowerShell"
         Import-Module -Name "$PSScriptRoot\Private\lib\Posh-SSH" -ErrorAction Stop  # Added for SSH functionality
         Write-Log "Imported module: Posh-SSH"
         Import-Module -Name "$PSScriptRoot\Private\lib\VMware.VimAutomation.Sdk" -ErrorAction Stop  # Added for VMware functionality
@@ -645,7 +645,7 @@ try {
             # Attempt automatic download from SharePoint Online
             Write-Host "Hospital master file not found locally. Attempting download from SharePoint Online..." -ForegroundColor Cyan
             try {
-                Update-HospitalMaster -ErrorAction Stop
+                Update-HospitalMaster -SharePointBaseUrl $config.InternalDomains.SharePointBaseUrl -HospitalMasterPath $config.InternalDomains.HospitalMasterPath -DestinationPath $hospitalMasterPath -ErrorAction Stop
                 Write-Host "Hospital master downloaded successfully from SharePoint Online." -ForegroundColor Green
                 Write-Log "Hospital master downloaded from SharePoint Online"
 
@@ -2206,132 +2206,43 @@ try {
     }
 
     # Function for Update Hospital Master (copied from VCAHospLauncher.ps1)
+    # PS 5.1 Compatible SharePoint Download Function (Replaces PnP.PowerShell dependency)
     function Update-HospitalMaster {
         param(
-            [switch]$ForceDownload
+            [string]$SharePointBaseUrl,
+            [string]$HospitalMasterPath,
+            [string]$DestinationPath
         )
-        # Update Hospital Master from SharePoint Online
-        Write-Log "Starting Hospital Master update process"
 
-        $CsvPath = "$PSScriptRoot\Private\csv"
-        $HospitalMasterXlsx = "$CsvPath\HOSPITALMASTER.xlsx"
-        $HospitalMasterXlsxNew = "$CsvPath\HOSPITALMASTER_new.xlsx"
-
-        if (-not (Test-Path -Path $CsvPath)) {
-            New-Item -ItemType Directory -Path $CsvPath | Out-Null
-        }
-
+        Write-Status "Prompting for Office 365/SharePoint Credentials to download Hospital Master..." Yellow
         try {
-            # Check if we have an existing file and if we should force download
-            if ((Test-Path -Path $HospitalMasterXlsx) -and -not $ForceDownload) {
-                Write-Status "Checking for Hospital Master updates..." Yellow
+            # The credential entered here MUST be an Office 365/SharePoint Online credential
+            $SPO_Credential = Get-Credential -Message "Enter your Office 365/SharePoint Online Username (e.g., user@vcaantech.com) and Password"
 
-                try {
-                    # Download new version to compare
-                    Get-VcaHospitalMaster -ErrorAction Stop
+            # Construct the direct download link. We use the site-relative path from config.
+            $DownloadUrl = "$($SharePointBaseUrl)$($HospitalMasterPath)"
 
-                    # Compare file hashes to see if it's different
-                    $CurrentHash = Get-FileHash -Path $HospitalMasterXlsx -Algorithm SHA256
-                    $NewHash = Get-FileHash -Path $HospitalMasterXlsxNew -Algorithm SHA256
+            Write-Status "Attempting download from: $DownloadUrl" Cyan
 
-                    if ($CurrentHash.Hash -ne $NewHash.Hash) {
-                        # Files are different, update
-                        Move-Item -Path $HospitalMasterXlsxNew -Destination $HospitalMasterXlsx -Force
-                        Write-Status "Hospital Master updated successfully" Green
-                        Write-Log "Hospital Master updated - new version downloaded"
-                    } else {
-                        # Files are the same, clean up
-                        Remove-Item -Path $HospitalMasterXlsxNew -Force
-                        Write-Status "Hospital Master is already up to date" Green
-                        Write-Log "Hospital Master check completed - no updates needed"
-                    }
-                }
-                catch {
-                    Write-Status "Failed to check for updates: $($_.Exception.Message)" Yellow
-                    Write-Status "Using existing local copy if available" Yellow
-                    Write-Log "Hospital Master update check failed: $($_.Exception.Message)"
-                }
-            } else {
-                # No existing file or force download requested
-                if ($ForceDownload) {
-                    Write-Status "Force downloading Hospital Master..." Yellow
-                } else {
-                    Write-Status "Hospital Master not found locally, downloading..." Yellow
-                }
+            # Use Invoke-WebRequest with the SharePoint credential
+            # The UseBasicParsing flag is essential for PS 5.1
+            Invoke-WebRequest -Uri $DownloadUrl -Credential $SPO_Credential -OutFile $DestinationPath -UseBasicParsing -ErrorAction Stop
 
-                Get-VcaHospitalMaster -ErrorAction Stop
-                Write-Status "Hospital Master downloaded successfully" Green
-                Write-Log "Hospital Master downloaded successfully"
-            }
-        }
-        catch {
+            Write-Status "Hospital Master successfully downloaded to $DestinationPath" Green
+            return $true
+
+        } catch {
             $errorMessage = $_.Exception.Message
-            Write-Status "Hospital Master download failed: $errorMessage" Red
-            Write-Log "Hospital Master download failed: $errorMessage"
-
-            # Show fallback information if we have a local copy
-            if (Test-Path -Path $HospitalMasterXlsx) {
-                $HospitalFileDate = '{0:M/dd/yyyy h:mm tt}' -f (Get-Item -Path $HospitalMasterXlsx | Select-Object -ExpandProperty LastWriteTime)
-                Write-Status "Using existing local copy (Last updated: $HospitalFileDate)" Yellow
-            } else {
-                Write-Status "No local copy available. Hospital information will not be displayed." Red
-            }
+            Write-Status "Failed to download Hospital Master from SharePoint." Red
+            Write-Status "Error: $($errorMessage)" Red
+            Write-Status "Ensure the following:" Yellow
+            Write-Status "1. The Office 365 credentials entered are valid." Yellow
+            Write-Status "2. Your network allows access to $SharePointBaseUrl." Yellow
+            throw "Failed to download Hospital Master from SharePoint: $($errorMessage)"
         }
     }
 
-    # Function for Get Vca Hospital Master (updated for modern SharePoint authentication)
-    function Get-VcaHospitalMaster {
-        [CmdletBinding()]
-        param(
-            $SharePointUrl = $config.InternalDomains.SharePointBaseUrl
-        )
 
-        # Check if PnP.PowerShell module is available
-        if (-not (Get-Module -ListAvailable -Name 'PnP.PowerShell')) {
-            try {
-                Write-Status "Installing PnP.PowerShell module for SharePoint access..." Yellow
-                Install-Module -Name PnP.PowerShell -Force -Scope CurrentUser -ErrorAction Stop
-            } catch {
-                Write-Status "Failed to install PnP.PowerShell module. Please install it manually: Install-Module PnP.PowerShell -Scope CurrentUser" Red
-                throw "PnP.PowerShell module is required for SharePoint access"
-            }
-        }
-
-        try {
-            # Remove any existing PnP modules to avoid assembly conflicts
-            Get-Module PnP.PowerShell | Remove-Module -Force -ErrorAction SilentlyContinue
-
-            # Import the module
-            Import-Module PnP.PowerShell -ErrorAction Stop
-
-            # Connect to SharePoint using interactive authentication (OAuth)
-            # This will prompt for login only on first use, then use cached token
-            Write-Status "Connecting to SharePoint Online..." Yellow
-            Connect-PnPOnline -Url $SharePointUrl -Interactive -ErrorAction Stop -WarningAction Ignore
-
-            # Download the file using the full site-relative path
-            Write-Status "Downloading Hospital Master file..." Yellow
-            Get-PnPFile -Url '/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx' -Path "$PSScriptRoot\private\csv" -Filename 'HOSPITALMASTER_new.xlsx' -AsFile -Force -ErrorAction Stop
-
-            Write-Status "Hospital Master file downloaded successfully" Green
-        }
-        catch {
-            $errorMessage = $_.Exception.Message
-            Write-Status "Failed to download Hospital Master from SharePoint: $errorMessage" Red
-            Write-Log "SharePoint download error: $errorMessage"
-
-            # Provide specific guidance based on error type
-            if ($errorMessage -like "*authentication*" -or $errorMessage -like "*credential*") {
-                Write-Status "Authentication failed. Please ensure you have valid Office 365/SharePoint Online credentials." Yellow
-            } elseif ($errorMessage -like "*network*" -or $errorMessage -like "*connection*") {
-                Write-Status "Network connection issue. Please check your internet connection and try again." Yellow
-            } elseif ($errorMessage -like "*access denied*" -or $errorMessage -like "*permission*") {
-                Write-Status "Access denied. Please ensure your account has permission to access the SharePoint site." Yellow
-            }
-
-            throw $errorMessage
-        }
-    }
 
     # Function for AD User Management (copied from created file)
     function ADUserManagement {
@@ -3067,7 +2978,7 @@ try {
                 }
                 "14u" {
                     # Update Hospital Master
-                    Update-HospitalMaster
+                    Update-HospitalMaster -SharePointBaseUrl $config.InternalDomains.SharePointBaseUrl -HospitalMasterPath $config.InternalDomains.HospitalMasterPath -DestinationPath "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx"
                     # Reload hospital master after update
                     if (Test-Path "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx") {
                         $HospitalMaster = Import-Excel -Path "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx" -WorksheetName Misc
