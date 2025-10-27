@@ -1,7 +1,74 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.28"  # Automatic secure download of hospital master data
+$version = "1.29"  # MAJOR SECURITY: Configuration abstraction and domain validation
+
+# Load configuration file
+$configPath = "$PSScriptRoot\Private\config.json"
+$config = $null
+if (Test-Path $configPath) {
+    try {
+        $config = Get-Content $configPath -Raw | ConvertFrom-Json
+        Write-Status "Configuration loaded successfully" Green
+    } catch {
+        Write-Status "Warning: Could not load configuration file. Using default values." Yellow
+        Write-Log "Config load error: $($_.Exception.Message)"
+    }
+} else {
+    Write-Status "Warning: Configuration file not found. Using default values." Yellow
+    Write-Log "Config file not found at $configPath"
+}
+
+# Set default config values if not loaded
+if (-not $config) {
+    $config = @{
+        InternalDomains = @{
+            PrimaryDomain = "vcaantech.com"
+            SharePointBaseUrl = "https://vca365.sharepoint.com"
+            HospitalMasterPath = "/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx"
+        }
+        ServerNaming = @{
+            DomainPrefix = "h"
+            NameServerSuffix = "-ns"
+            UtilSuffix = "-util"
+            DatabaseSuffix = "-db"
+            VMwareSuffix = "-vm"
+            ILOSuffix = "-ilo"
+        }
+        NetworkSettings = @{
+            PingTimeout = 100
+            MaxConcurrency = 10
+            DefaultTimeZone = "Pacific Standard Time"
+            DHCPServers = @("phhospdhcp1.vcaantech.com", "phhospdhcp2.vcaantech.com")
+            PrimaryDHCPServer = "phhospdhcp2.vcaantech.com"
+        }
+        SecuritySettings = @{
+            RequireDomainJoin = $true
+            ValidateCredentials = $true
+            CredentialCacheMinutes = 10
+        }
+    }
+}
+
+# Security check: Verify domain membership if required
+if ($config.SecuritySettings.RequireDomainJoin) {
+    try {
+        $domainInfo = Get-WmiObject -Class Win32_ComputerSystem -ErrorAction Stop
+        $isDomainJoined = $domainInfo.PartOfDomain
+        $domainName = $domainInfo.Domain
+
+        if (-not $isDomainJoined -or $domainName -notlike "*$($config.InternalDomains.PrimaryDomain)*") {
+            Write-Status "SECURITY WARNING: This script requires a domain-joined machine on the $($config.InternalDomains.PrimaryDomain) domain." Red
+            Write-Status "Please run this script from a properly configured corporate machine." Red
+            Write-Status "Press any key to exit..." Yellow
+            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            exit 1
+        }
+    } catch {
+        Write-Status "Warning: Could not verify domain membership. Some features may not work." Yellow
+        Write-Log "Domain check error: $($_.Exception.Message)"
+    }
+}
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -144,7 +211,7 @@ function Get-CachedServers {
         # Use splatting for Get-ADComputer to improve readability
         $adComputerParams = @{
             Filter      = "Name -like '$SiteAU-ns*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'"
-            Server      = "vcaantech.com"
+            Server      = $config.InternalDomains.PrimaryDomain
             ErrorAction = 'Stop'
         }
 
@@ -461,7 +528,7 @@ try {
     # Load hospital master to memory (added for hospital info display)
     if (-not $HospitalMaster) {
         $hospitalMasterPath = "$PSScriptRoot\Data\HOSPITALMASTER.xlsx"
-        $hospitalMasterUrl = 'https://vca365.sharepoint.com/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx'
+        $hospitalMasterUrl = $config.InternalDomains.SharePointBaseUrl + $config.InternalDomains.HospitalMasterPath
 
         if (Test-Path $hospitalMasterPath) {
             try {
@@ -516,7 +583,7 @@ try {
             # Use splatting for Get-ADComputer
             $adComputerParams = @{
                 Filter      = "Name -like '$SiteAU-ns*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'"
-                Server      = "vcaantech.com"
+                Server      = $config.InternalDomains.PrimaryDomain
                 Credential  = $ADCredential
                 ErrorAction = 'Stop'
             }
@@ -545,7 +612,7 @@ try {
         # Cache for IP resolutions (optimization: avoid repeated DNS calls)
         $ipCache = @{}
 
-        $dhcpServer = "phhospdhcp2.vcaantech.com"
+        $dhcpServer = $config.NetworkSettings.PrimaryDHCPServer
         $hostname = Convert-VcaAu -AU $AU -Suffix '-gw'
 
         # Resolve gateway IP using helper function
@@ -1011,8 +1078,8 @@ try {
         # Step 1: Select username from AD group (similar to option 5)
         $adGroupName = 'H' + $AU.PadLeft(4, '0')
         try {
-            $groupMembers = Get-ADGroupMember -Identity $adGroupName -Server "vcaantech.com" -Credential $ADCredential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-            $adUsers = $groupMembers | Get-ADUser -Properties Name, SamAccountName -Server "vcaantech.com" -Credential $ADCredential -ErrorAction Stop |
+            $groupMembers = Get-ADGroupMember -Identity $adGroupName -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
+            $adUsers = $groupMembers | Get-ADUser -Properties Name, SamAccountName -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop |
                        Select-Object Name, SamAccountName | Sort-Object Name
             if ($adUsers) {
                 $selectedUser = $adUsers | Out-GridView -Title "Select user to filter Woofware errors for AU $AU" -OutputMode Single
@@ -1583,7 +1650,7 @@ try {
         $results = @()
         $totalServers = 2  # Assuming 2 DHCP servers as per context
         $i = 0
-        foreach ($Server in @("phhospdhcp1.vcaantech.com", "phhospdhcp2.vcaantech.com")) {  # Example servers; adjust as needed
+        foreach ($Server in $config.NetworkSettings.DHCPServers) {
             $i++
             Write-Progress -Activity "Processing DHCP servers" -Status "Server $i of $totalServers : $Server" -PercentComplete (($i / $totalServers) * 100)
             try {
@@ -1709,8 +1776,8 @@ try {
             $adGroupName = 'H' + $AU.PadLeft(4, '0')
             Write-Log "Debug: User-LogonCheck group name '$adGroupName' for AU $AU"
             try {
-                $groupMembers = Get-ADGroupMember -Identity $adGroupName -Server "vcaantech.com" -Credential $ADCredential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-                $adUsers = $groupMembers | Get-ADUser -Properties Name, SamAccountName, EmailAddress, Title -Server "vcaantech.com" -Credential $ADCredential -ErrorAction Stop | 
+                $groupMembers = Get-ADGroupMember -Identity $adGroupName -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
+                $adUsers = $groupMembers | Get-ADUser -Properties Name, SamAccountName, EmailAddress, Title -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop | 
                            Select-Object Name, SamAccountName, EmailAddress, Title | Sort-Object Name
                 if ($adUsers) {
                     $selectedUser = $adUsers | Out-GridView -Title "Select user from AD group $adGroupName for AU $AU" -OutputMode Single
@@ -1733,8 +1800,8 @@ try {
             if (-not $SkipPropertiesDisplay) {
                 try {
                     # Get domain password policy for expiry calculation
-                    $MaxPasswordAge = (Get-ADDefaultDomainPasswordPolicy -Server "vcaantech.com" -Credential $ADCredential).MaxPasswordAge
-                    $adUser = Get-ADUser -Identity $Username -Properties Name, Title, OfficePhone, Office, Department, EmailAddress, StreetAddress, City, State, PostalCode, SID, Created, extensionAttribute3, PasswordLastSet -Server "vcaantech.com" -Credential $ADCredential -ErrorAction Stop
+                    $MaxPasswordAge = (Get-ADDefaultDomainPasswordPolicy -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential).MaxPasswordAge
+                    $adUser = Get-ADUser -Identity $Username -Properties Name, Title, OfficePhone, Office, Department, EmailAddress, StreetAddress, City, State, PostalCode, SID, Created, extensionAttribute3, PasswordLastSet -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop
                     Write-Host "`nAD Properties for $Username :" -ForegroundColor Cyan
                     $adUser | Select-Object Name, Title, @{n='OfficePhone'; e={$_.OfficePhone}}, Office, Department, EmailAddress, StreetAddress, City, State, PostalCode, SID, Created, extensionAttribute3, PasswordLastSet, @{n='PasswordExpires'; e={ if ($_.PasswordLastSet) { $_.PasswordLastSet + $MaxPasswordAge } else { 'Never Set' } }} | Format-List
                 } catch {
@@ -2072,7 +2139,7 @@ try {
         # Check for Hospital Master update
         if (-not $EmailCredential) { $EmailCredential = Get-StoredCredential -Target vcaemailcreds }
 
-        $HospitalMasterUrl = 'https://vca365.sharepoint.com/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx'
+        $HospitalMasterUrl = $config.InternalDomains.SharePointBaseUrl + $config.InternalDomains.HospitalMasterPath
         $CsvPath = "$PSScriptRoot\Private\csv"
         $HospitalMasterXlsx = "$CsvPath\HOSPITALMASTER.xlsx"
         $HospitalMasterXlsxNew = "$CsvPath\HOSPITALMASTER_new.xlsx"
@@ -2124,7 +2191,7 @@ try {
     function Get-VcaHospitalMaster {
         [CmdletBinding()]
         param(
-            $SharePointUrl = 'https://vca365.sharepoint.com/sites/WOOFconnect/regions'
+            $SharePointUrl = $config.InternalDomains.SharePointBaseUrl + '/sites/WOOFconnect/regions'
         )
         try {
             Connect-PnPOnline -Url $SharePointUrl -UseWebLogin -ErrorAction Stop -WarningAction Ignore
@@ -2159,8 +2226,8 @@ try {
 
         try {
             # Get group members and their AD user details
-            $groupMembers = Get-ADGroupMember -Identity $groupName -Server "vcaantech.com" -Credential $Credential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-            $users = $groupMembers | Get-ADUser -Properties Name, SamAccountName, EmailAddress, LockedOut, PasswordExpired, LastLogonDate -Server "vcaantech.com" -Credential $Credential -ErrorAction Stop
+            $groupMembers = Get-ADGroupMember -Identity $groupName -Server $config.InternalDomains.PrimaryDomain -Credential $Credential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
+            $users = $groupMembers | Get-ADUser -Properties Name, SamAccountName, EmailAddress, LockedOut, PasswordExpired, LastLogonDate -Server $config.InternalDomains.PrimaryDomain -Credential $Credential -ErrorAction Stop
 
             if (-not $users) {
                 Write-Host "No users found in group $groupName." -ForegroundColor Yellow
@@ -2403,7 +2470,7 @@ try {
         $adGroupName = 'H' + $AU.PadLeft(4, '0')
         Write-Log "Debug: Validating group name '$adGroupName' for AU $AU"
         try {
-            $group = Get-ADObject -Filter "objectClass -eq 'group' -and name -eq '$adGroupName'" -Server "vcaantech.com" -Credential $ADCredential -ErrorAction Stop
+            $group = Get-ADObject -Filter "objectClass -eq 'group' -and name -eq '$adGroupName'" -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop
             if (-not $group) { throw "Group '$adGroupName' not found." }
         } catch {
             Write-Host "Failed to query AD group '$adGroupName' for AU $AU. Error: $($_.Exception.Message)" -ForegroundColor Red
@@ -2909,7 +2976,7 @@ try {
                         $adComputerParams = @{
                             Filter     = "Name -like '$SiteAU-*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*' -or Name -like '$SiteAU-Util*'"
                             Properties = 'IPv4Address', 'OperatingSystem'
-                            Server     = "vcaantech.com"
+                            Server     = $config.InternalDomains.PrimaryDomain
                             Credential = $ADCredential
                             ErrorAction = 'Stop'
                         }

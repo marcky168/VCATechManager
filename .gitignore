@@ -5,17 +5,40 @@ logs/
 # Ignore credential files
 Private/vcaadcred.xml
 Private/vcaadmin.xml
+Private/github_pat.txt
+*.xml
 
 # Ignore sensitive data files
 Private/csv/HOSPITALMASTER.xlsx
 Private/csv/archive/
 Data/
 
+# Ignore configuration files with internal details
+config.json
+Private/config.json
+*.config
+
+# Ignore reports and exports
+reports/
+*.csv
 
 # Ignore temporary files
 *.tmp
 *.temp
+*.bak
 
 # Windows specific
 Thumbs.db
 Desktop.ini
+$RECYCLE.BIN/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# PowerShell specific
+*.ps1xml
+*.psd1
+*.psm1

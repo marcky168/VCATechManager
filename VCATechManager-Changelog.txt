@@ -2,6 +2,17 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.29 - 2025-10-27
++ MAJOR SECURITY ENHANCEMENT: Implemented comprehensive configuration abstraction to protect internal infrastructure details
++ Added domain membership validation: Script now requires execution from VCA domain-joined machines only
++ Enhanced repository security: Moved sensitive internal URLs, domains, and server configurations to Private/config.json
++ Replaced all hardcoded "vcaantech.com" references with configurable values for public repository distribution
++ Added DHCP server configuration abstraction with configurable server arrays
++ Implemented SharePoint URL abstraction for secure internal resource access
++ Enhanced .gitignore with comprehensive security exclusions for credentials, reports, and sensitive data
++ Maintained backward compatibility: Default config values ensure functionality without config file
++ Improved error handling: Graceful fallback when configuration file is missing or invalid
+
 v1.28 - 2025-10-27
 + Enhanced hospital master data handling: Automatic secure download from internal SharePoint for VCA employees with valid domain credentials
 + Improved user experience: Authorized users get seamless setup without manual file downloads
