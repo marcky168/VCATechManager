@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.25"  # Function consolidation for improved startup performance
+$version = "1.26"  # Fixed credential handling and RSJob variable scoping
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -38,7 +38,8 @@ function Write-ConditionalLog {
 
 # Function to validate AD credentials with -ErrorAction Stop
 function Test-ADCredentials {
-    param([pscredential]$Credential)
+    param($Credential)
+    if ($Credential -isnot [pscredential]) { return $false }
     try {
         Get-ADDomain -Credential $Credential -ErrorAction Stop | Out-Null
         return $true
@@ -58,35 +59,15 @@ function Get-ADSecureCredential {
     if (Test-Path $CredPath) {
         try {
             $Cred = Import-Clixml -Path $CredPath -ErrorAction Stop
-            if (Test-ADCredentials $Cred) { return $Cred }
+            if ($Cred -is [pscredential] -and (Test-ADCredentials $Cred)) { return $Cred }
         } catch {
             Write-Status "Failed to load saved credentials: $($_.Exception.Message)" Yellow
             Write-Log "Failed to load saved credentials: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
         }
     }
 
-    # 2. If Load Failed or Credential is Invalid, Prompt User
-    if (-not $Cred) {
-        Write-Status "AD Credential not found or failed to load. Prompting..." Yellow
-        try {
-            $Cred = Get-Credential -Message $PromptMessage -ErrorAction Stop
-
-            # 3. Save the new credential
-            if ($Cred) {
-                $Cred | Export-Clixml -Path $CredPath -Force -ErrorAction Stop
-                Write-Status "New credentials saved successfully." Green
-                Write-Log "New credentials saved to $CredPath"
-            } else {
-                Write-Status "No credentials provided. Some features may not work." Yellow
-                Write-Log "No credentials provided at prompt."
-            }
-        } catch {
-            Write-Status "Credential prompt cancelled or failed: $($_.Exception.Message)" Red
-            Write-Log "Credential prompt failed: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
-        }
-    }
-
-    return $Cred
+    # 2. Return null if no valid credentials found - let calling code decide whether to prompt
+    return $null
 }
 
 # Load credentials early with centralized function
@@ -152,7 +133,7 @@ filter Get-PingStatus {
 
 # Helper function for cached server fetching (optimization: adds expiration and reduces AD calls)
 function Get-CachedServers {
-    param($AU)
+    param($AU, [pscredential]$Credential = $ADCredential)
     $cacheKey = $AU
     $cacheExpiry = 10  # Minutes
     if ($validAUs.ContainsKey($cacheKey) -and $validAUs[$cacheKey].Timestamp -is [DateTime] -and ((Get-Date) - $validAUs[$cacheKey].Timestamp).TotalMinutes -lt $cacheExpiry) {
@@ -164,9 +145,14 @@ function Get-CachedServers {
         $adComputerParams = @{
             Filter      = "Name -like '$SiteAU-ns*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'"
             Server      = "vcaantech.com"
-            Credential  = $ADCredential
             ErrorAction = 'Stop'
         }
+
+        # Only add Credential if provided
+        if ($Credential) {
+            $adComputerParams.Add('Credential', $Credential)
+        }
+
         $servers = Get-ADComputer @adComputerParams | Select-Object -ExpandProperty Name | Sort-Object Name
         $validAUs[$cacheKey] = @{ Servers = $servers; Timestamp = Get-Date }
         return $servers
@@ -523,66 +509,19 @@ try {
     }
 
     # New: Function for Abaxis MAC Address Search (optimized: uses helpers, caches IP, splatting)
-    function Abaxis-MacAddressSearch {
+    function Invoke-AbaxisMacSearch {
         param([string]$AU)
         Write-Log "Starting Abaxis MAC Address Search for AU $AU"
 
         # Cache for IP resolutions (optimization: avoid repeated DNS calls)
         $ipCache = @{}
 
-        # Function to normalize MAC addresses by removing hyphens and converting to uppercase
-        function Normalize-MacAddressForDhcpScript {
-            param ($mac)
-            return $mac.Replace("-", "").ToUpper()
-        }
-
-        # Function to determine the device group based on MAC address
-        function Get-DeviceGroup {
-            param ($mac)
-            $normalizedMac = Normalize-MacAddressForDhcpScript $mac
-            foreach ($group in $macPrefixes.Keys) {
-                $prefixes = $macPrefixes[$group]
-                $normalizedPrefixes = $prefixes | ForEach-Object { Normalize-MacAddressForDhcpScript $_ }
-                if ($normalizedPrefixes | Where-Object { $normalizedMac.StartsWith($_) }) {
-                    return $group
-                }
-            }
-            return "Other"
-        }
-
-        # Define MAC address prefixes for each device group
-        $macPrefixes = @{
-            "VS2"   = @("00-07-32", "00-30-64")
-            "HM5"   = @("00-1B-EB")
-            "VSPro" = @("00-03-1D")
-            "Fuse"  = @("00-90-FB", "00-50-56", "00-0C-29")
-        }
-
         $dhcpServer = "phhospdhcp2.vcaantech.com"
         $hostname = Convert-VcaAu -AU $AU -Suffix '-gw'
 
-         # Optimized DNS resolution with caching
-        if (-not $ipCache.ContainsKey($hostname)) {
-            try {
-                $ipAddresses = [System.Net.Dns]::GetHostAddresses($hostname)
-                $ipCache[$hostname] = $ipAddresses
-            } catch {
-                Write-Host "DNS resolution failed for '$hostname'. Retrying once..." -ForegroundColor Yellow
-                Start-Sleep -Seconds 2
-                try {
-                    $ipAddresses = [System.Net.Dns]::GetHostAddresses($hostname)
-                    $ipCache[$hostname] = $ipAddresses
-                } catch {
-                    Write-Host "Error: Could not resolve hostname '$hostname'. $($_.Exception.Message)" -ForegroundColor Red
-                    Write-Log "Error in DNS resolution: $($_.Exception.Message)"
-                    return
-                }
-            }
-        } else {
-            $ipAddresses = $ipCache[$hostname]
-        }
-
-        if ($ipAddresses.Length -eq 0) {
+        # Resolve gateway IP using helper function
+        $ipAddresses = Resolve-HostIP -Hostname $hostname -IpCache $ipCache
+        if (-not $ipAddresses -or $ipAddresses.Length -eq 0) {
             Write-Host "Error: No IP addresses found for hostname '$hostname'." -ForegroundColor Red
             Write-Log "No IP found for $hostname"
             return
@@ -592,33 +531,28 @@ try {
         $ip = $ipAddresses[0].ToString()
         $scopeId = $ip -replace '\.\d+$', '.0'
 
-        # Retrieve DHCP leases with splatting (optimization: cleaner code)
+        # Retrieve DHCP leases using helper function
         Write-Progress -Activity "Retrieving DHCP leases" -Status "Connecting to $dhcpServer..." -PercentComplete 50
-        $leaseParams = @{
-            ComputerName = $dhcpServer
-            ScopeId      = $scopeId
-            ErrorAction  = 'Stop'
-        }
-        try {
-            $leases = Get-DhcpServerv4Lease @leaseParams
-        } catch {
-            Write-Host "Error: Could not retrieve leases from DHCP server '$dhcpServer'. $($_.Exception.Message)" -ForegroundColor Red
-            Write-Log "Lease retrieval error: $($_.Exception.Message)"
-            return
-        }
-
+        $leases = Get-DHCPLeases -DHCPServer $dhcpServer -ScopeId $scopeId
         if (-not $leases) {
             Write-Host "No leases found for scope '$scopeId'."
         }
 
         # Process each group and find matching leases
         $groupResults = @()
+        $macPrefixes = @{
+            "VS2"   = @("00-07-32", "00-30-64")
+            "HM5"   = @("00-1B-EB")
+            "VSPro" = @("00-03-1D")
+            "Fuse"  = @("00-90-FB", "00-50-56", "00-0C-29")
+        }
+
         foreach ($group in $macPrefixes.Keys) {
             $prefixes = $macPrefixes[$group]
-            $normalizedPrefixes = $prefixes | ForEach-Object { Normalize-MacAddressForDhcpScript $_ }
+            $normalizedPrefixes = $prefixes | ForEach-Object { Normalize-MacAddress $_ }
 
             $matchingLeases = $leases | Where-Object {
-                $normalizedClientId = Normalize-MacAddressForDhcpScript $_.ClientId
+                $normalizedClientId = Normalize-MacAddress $_.ClientId
                 $normalizedPrefixes | Where-Object { $normalizedClientId.StartsWith($_) }
             }
 
@@ -631,55 +565,23 @@ try {
             }
         }
 
-        # Retrieve and display DHCP reservations for the scope
+        # Retrieve and display DHCP reservations for the scope using helper function
         Write-Host "`nDHCP Reservations for scope $scopeId" -ForegroundColor Green
-        try {
-            $reservations = Get-DhcpServerv4Reservation -ComputerName $dhcpServer -ScopeId $scopeId -ErrorAction Stop
-            if ($reservations) {
-                $reservations | Sort-Object IPAddress | Format-Table -Property IPAddress, ClientId, Name, Description, @{Name="DeviceGroup"; Expression={Get-DeviceGroup $_.ClientId}}
-                $groupResults += $reservations
-            } else {
-                Write-Host "No reservations found for scope '$scopeId'."
-            }
-        } catch {
-            Write-Host "Error: Could not retrieve reservations from DHCP server '$dhcpServer'. $($_.Exception.Message)" -ForegroundColor Red
-            Write-Log "Reservation retrieval error: $($_.Exception.Message)"
+        $reservations = Get-DHCPReservations -DHCPServer $dhcpServer -ScopeId $scopeId
+        if ($reservations) {
+            $reservations | Sort-Object IPAddress | Format-Table -Property IPAddress, ClientId, Name, Description, @{Name="DeviceGroup"; Expression={Get-DeviceGroup $_.ClientId}}
+            $groupResults += $reservations
+        } else {
+            Write-Host "No reservations found for scope '$scopeId'."
         }
 
-# Retrieve ARP data from servers to find additional devices
-Write-Host "`nRetrieving ARP data from servers..." -ForegroundColor Green
-$arpResults = @()
-$servers = Get-CachedServers -AU $AU
-if ($servers) {
-    $arpJobs = @()
-    foreach ($server in $servers) {
-        $job = Start-RSJob -ScriptBlock {
-            param($server, $ADCredential)
-            try {
-                Invoke-Command -ComputerName $server -ScriptBlock {
-                    try {
-                        Get-NetNeighbor | Select-Object IPAddress, LinkLayerAddress
-                    } catch {
-                        $arpOutput = arp -a
-                        $lines = $arpOutput -split "`n" | Where-Object { $_ -match '\d+\.\d+\.\d+\.\d+\s+[0-9a-f-]+' }
-                        $lines | ForEach-Object {
-                            $parts = $_ -split '\s+' | Where-Object { $_ -and $_ -ne 'dynamic' -and $_ -ne 'static' }
-                            if ($parts.Count -ge 2) {
-                                [PSCustomObject]@{ IPAddress = $parts[0]; LinkLayerAddress = $parts[1] }
-                            }
-                        }
-                    }
-                } -Credential $ADCredential -ErrorAction Stop
-            } catch {
-                Write-Debug "Failed to get ARP from $server : $($_.Exception.Message)"
-                $null
-            }
-        } -ArgumentList $server, $ADCredential
-        $arpJobs += $job
-    }
-    $arpResults = $arpJobs | Wait-RSJob | Receive-RSJob | Where-Object { $_ }
-    Remove-RSJob -Job $arpJobs
-}        # Process ARP results and add matching devices to groupResults (excluding Fuse)
+        # Retrieve ARP data from servers using helper function
+        Write-Host "`nRetrieving ARP data from servers..." -ForegroundColor Green
+        $servers = Get-CachedServers -AU $AU
+        $arpResults = @()
+        if ($servers) {
+            $arpResults = Get-ARPTable -ComputerNames $servers -Credential $ADCredential
+        }        # Process ARP results and add matching devices to groupResults (excluding Fuse)
         $uniqueArp = $arpResults | Sort-Object IPAddress -Unique
         foreach ($entry in $uniqueArp) {
             $group = Get-DeviceGroup $entry.LinkLayerAddress
@@ -2700,109 +2602,7 @@ if ($servers) {
                     $host.UI.RawUI.WindowTitle = "VCATechManager v$version - $scriptPath"
                 }
                 "1" {
-                    # Prompt for ARP table viewer first to find MAC addresses for filtering
-                    $wantARP = Read-Host "Do you want to view the ARP table from a server? (y/n)"
-                    if ($wantARP.ToLower() -eq 'y') {
-                        # Check credentials
-                        if (-not $ADCredential -or -not (Test-ADCredentials -Credential $ADCredential)) {
-                            Write-Host "AD credentials invalid. Prompting for new ones..." -ForegroundColor Yellow
-                            try {
-                                $ADCredential = Get-Credential -Message "Enter AD domain credentials (e.g., vcaantech\youruser)" -ErrorAction Stop
-                                if ($ADCredential) {
-                                    $ADCredential | Export-Clixml -Path $credPathAD -Force -ErrorAction Stop
-                                    Write-Host "AD credentials saved." -ForegroundColor Green
-                                    Write-Log "AD credentials updated via option 1 ARP viewer."
-                                } else {
-                                    Write-Host "No credentials provided. Skipping ARP retrieval." -ForegroundColor Yellow
-                                    return
-                                }
-                            } catch {
-                                Write-Host "Error updating credentials: $($_.Exception.Message)" -ForegroundColor Red
-                                Write-Log "Error updating credentials in option 1: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
-                                return
-                            }
-                        }
-                        # Server selection
-                        Clear-Variable -Name SelectedServers, SiteAU -ErrorAction Ignore
-                        $SiteAU = Convert-VcaAu -AU $AU -Suffix ''
-                        $adComputerParams = @{
-                            Filter     = "Name -like '$SiteAU-*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*' -or Name -like '$SiteAU-Util*'"
-                            Properties = 'IPv4Address', 'OperatingSystem'
-                            Server     = "vcaantech.com"
-                            Credential = $ADCredential
-                            ErrorAction = 'Stop'
-                        }
-                        try {
-                            Get-ADComputer @adComputerParams |
-                                Select-Object -Property Name, IPv4Address, OperatingSystem, @{n = 'Status'; e = { $PSItem.Name | Get-PingStatus } } |
-                                Sort-Object -Property Name |
-                                Out-GridView -Title "Select Server(s) to view ARP table" -OutputMode Multiple -OutVariable SelectedServers | Out-Null
-                        } catch {
-                            Write-Host "Failed to query servers: $($_.Exception.Message)" -ForegroundColor Red
-                            Write-Log "Failed to query servers for ARP viewer AU $AU : $($_.Exception.Message)"
-                            return
-                        }
-                        if (-not $SelectedServers) {
-                            Write-Host "No servers selected. Skipping ARP retrieval." -ForegroundColor Yellow
-                        } else {
-                            # Run remote command
-                            foreach ($server in $SelectedServers) {
-                                Write-Host "Pinging IP range on $($server.Name) to populate ARP cache..." -ForegroundColor Green
-                                try {
-                                    Invoke-Command -ComputerName $server.Name -ScriptBlock {
-                                        # Get the server's IP to determine subnet
-                                        $serverIP = (Get-NetIPAddress | Where-Object { $_.AddressFamily -eq 'IPv4' -and $_.IPAddress -like '10.*' }).IPAddress | Select-Object -First 1
-                                        if ($serverIP) {
-                                            $base = $serverIP -replace '\.\d+$', '.'
-                                            # Ping sweep ranges: 40-99 and 200-230 using ping.exe for compatibility
-                                            for ($i = 40; $i -le 99; $i++) {
-                                                ping "$base$i" -n 1 -w 100 | Out-Null
-                                            }
-                                            for ($i = 200; $i -le 230; $i++) {
-                                                ping "$base$i" -n 1 -w 100 | Out-Null
-                                            }
-                                        }
-                                    } -Credential $ADCredential -ErrorAction Stop
-                                } catch {
-                                    Write-Host "Failed to ping sweep on $($server.Name): $($_.Exception.Message)" -ForegroundColor Red
-                                    Write-Log "Ping sweep error for $($server.Name): $($_.Exception.Message)"
-                                }
-
-                                Write-Host "ARP table from $($server.Name):" -ForegroundColor Green
-                                try {
-                                    Invoke-Command -ComputerName $server.Name -ScriptBlock {
-                                        try {
-                                            Get-NetNeighbor | Select-Object IPAddress, LinkLayerAddress | Format-Table -AutoSize
-                                        } catch {
-                                            # Fallback to arp command if Get-NetNeighbor fails
-                                            $arpOutput = arp -a
-                                            $lines = $arpOutput -split "`n" | Where-Object { $_ -match '\d+\.\d+\.\d+\.\d+\s+[0-9a-f-]+' }
-                                            $lines | ForEach-Object {
-                                                $parts = $_ -split '\s+' | Where-Object { $_ -and $_ -ne 'dynamic' -and $_ -ne 'static' }
-                                                if ($parts.Count -ge 2) {
-                                                    [PSCustomObject]@{ IP = $parts[0]; MAC = $parts[1] }
-                                                }
-                                            } | Format-Table -AutoSize
-                                        }
-                                    } -Credential $ADCredential -ErrorAction Stop
-                                } catch {
-                                    Write-Host "Failed to retrieve ARP table from $($server.Name): $($_.Exception.Message)" -ForegroundColor Red
-                                    Write-Log "ARP retrieval error for $($server.Name): $($_.Exception.Message)"
-                                }
-                            }
-                            Write-Host "ARP retrieval complete." -ForegroundColor Green
-                            Write-Log "Viewed ARP table for servers in AU $AU"
-                        }
-                    }
-                    # Import ActiveDirectory for Abaxis search
-                    try {
-                        Import-Module ActiveDirectory -ErrorAction Stop
-                    } catch {
-                        Write-Host "ActiveDirectory module required for Abaxis search. Install RSAT." -ForegroundColor Red
-                        continue
-                    }
-                    # Then run the Abaxis MAC Address Search
-                    Abaxis-MacAddressSearch -AU $AU
+                    Invoke-MenuOption1 -AU $AU -ADCredential $ADCredential -credPathAD $credPathAD
                 }
                 "2" {
                     # Import PoshRSJob for parallel processing
@@ -3110,44 +2910,7 @@ if ($servers) {
                     Start-Process "https://$ComputerNameStripped-fuse:8443"
                 }
                 "83" {
-                    # Restart Sparky Services (Parallel Processing)
-                    if (Get-Module -Name ActiveDirectory) {
-                        Clear-Variable -Name SiteServers, SiteAU -ErrorAction Ignore
-                        $SiteAU = Convert-VcaAu -AU $AU -Suffix ''
-                        Get-ADComputer -Filter "Name -like '$SiteAU-ns*' -and OperatingSystem -like '*Server*'" -Properties IPv4Address, OperatingSystem |
-                            Select-Object Name, IPv4Address, OperatingSystem, @{n = 'Status'; e = { $PSItem.Name | Get-PingStatus } } | Sort-Object Name |
-                            Out-GridView -Title "#83 Select Remote Desktop Server to Reset Sparky Services - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Multiple -OutVariable SiteServers | Out-Null
-
-                        if ($SiteServers) {
-                            Write-Host "Restarting Sparky services on selected servers (parallel processing)..." -ForegroundColor Green
-                            $restartJobs = @()
-                            foreach ($server in $SiteServers) {
-                                $job = Start-RSJob -ScriptBlock {
-                                    param($serverName, $cred)
-                                    try {
-                                        Invoke-Command -ComputerName $serverName -Credential $cred -ScriptBlock {
-                                            Get-Service -Name Sparky* | Restart-Service -Verbose -ErrorAction Stop
-                                            "Success: Services restarted on $using:serverName"
-                                        } -ErrorAction Stop
-                                    } catch {
-                                        "Error: Failed to restart services on $serverName - $($_.Exception.Message)"
-                                    }
-                                } -ArgumentList $server.Name, $ADCredential
-                                $restartJobs += $job
-                            }
-
-                            # Wait for all jobs to complete and display results
-                            $results = $restartJobs | Wait-RSJob | Receive-RSJob
-                            foreach ($result in $results) {
-                                if ($result -like "Success:*") {
-                                    Write-Host $result -ForegroundColor Green
-                                } else {
-                                    Write-Host $result -ForegroundColor Red
-                                }
-                            }
-                            Remove-RSJob -Job $restartJobs
-                        }
-                    }
+                    Invoke-MenuOption83 -AU $AU -ADCredential $ADCredential
                 }
                 "h" {
                     Clear-Host

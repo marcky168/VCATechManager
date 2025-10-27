@@ -2,6 +2,13 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.26 - 2025-10-27
++ Security enhancement: Removed credential files (vcaadcred.xml, vcaadmin.xml) from git tracking to prevent accidental upload to GitHub
++ Fixed credential handling: Modified Get-ADSecureCredential to return null when no valid credentials found, allowing current Windows credentials as fallback
++ Fixed RSJob variable scoping: Resolved $using: variable issues in option 83 service restart function using dynamic ScriptBlock creation
++ Improved option 83: Service restart success messages now properly display server names
++ Enhanced error handling: Better credential validation and fallback mechanisms throughout the script
+
 v1.25 - 2025-10-25
 + Function consolidation: Reduced startup disk I/O by 75% by grouping ~20 individual function files into 6 consolidated files (ADFunctions.ps1, SystemMonitoring.ps1, NetworkFunctions.ps1, UserSessionFunctions.ps1, ServiceNowFunctions.ps1, UtilityFunctions.ps1)
 + Improved script initialization performance and maintainability
