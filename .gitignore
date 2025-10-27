@@ -6,6 +6,11 @@ logs/
 Private/vcaadcred.xml
 Private/vcaadmin.xml
 
+# Ignore sensitive data files
+Private/csv/HOSPITALMASTER.xlsx
+Private/csv/archive/
+Data/
+
 
 # Ignore temporary files
 *.tmp

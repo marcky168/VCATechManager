@@ -460,7 +460,7 @@ try {
 
     # Load hospital master to memory (added for hospital info display)
     if (-not $HospitalMaster) {
-        $hospitalMasterPath = "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx"
+        $hospitalMasterPath = "$PSScriptRoot\Data\HOSPITALMASTER.xlsx"
         if (Test-Path $hospitalMasterPath) {
             try {
                 $HospitalMaster = Import-Excel -Path $hospitalMasterPath -WorksheetName Misc
@@ -470,8 +470,11 @@ try {
                 Write-Log "Hospital master load error: $($_.Exception.Message)"
             }
         } else {
-            Write-Host "Hospital master file not found at $hospitalMasterPath. Hospital info will not be displayed." -ForegroundColor Yellow
+            Write-Host "Hospital master file not found at $hospitalMasterPath." -ForegroundColor Yellow
+            Write-Host "Please download the HOSPITALMASTER.xlsx file from the secure internal file share and place it in the 'Data' folder." -ForegroundColor Cyan
+            Write-Host "Hospital info will not be displayed until the file is available." -ForegroundColor Yellow
             Write-Log "Hospital master file not found at $hospitalMasterPath"
+            # Don't exit - allow script to continue without hospital data
         }
     }
 
