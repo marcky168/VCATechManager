@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.31"  # SHAREPOINT AUTHENTICATION FIX: Base URL connection and full site-relative paths
+$version = "1.32"  # AD AUTHENTICATION FIX: Graceful credential fallback and retry logic
 
 # Load configuration file
 $configPath = "$PSScriptRoot\Private\config.json"
@@ -119,11 +119,12 @@ function Test-ADCredentials {
 function Get-ADSecureCredential {
     param(
         [string]$CredPath,
-        [string]$PromptMessage = "Enter AD domain credentials (e.g., vcaantech\youruser)"
+        [string]$PromptMessage = "Enter AD domain credentials (e.g., vcaantech\youruser)",
+        [switch]$ForcePrompt = $false
     )
 
-    # 1. Attempt to Load Saved Credential
-    if (Test-Path $CredPath) {
+    # 1. Attempt to Load Saved Credential (unless forced to prompt)
+    if (-not $ForcePrompt -and (Test-Path $CredPath)) {
         try {
             $Cred = Import-Clixml -Path $CredPath -ErrorAction Stop
             if ($Cred -is [pscredential] -and (Test-ADCredentials $Cred)) { return $Cred }
@@ -133,13 +134,32 @@ function Get-ADSecureCredential {
         }
     }
 
-    # 2. Return null if no valid credentials found - let calling code decide whether to prompt
+    # 2. Prompt for credentials if forced or no valid saved creds
+    if ($ForcePrompt -or -not (Test-Path $CredPath)) {
+        $Cred = Get-Credential -Message $PromptMessage
+        if ($Cred -and (Test-ADCredentials $Cred)) {
+            $Cred | Export-Clixml -Path $CredPath -Force -ErrorAction SilentlyContinue
+            Write-Status "Credentials saved successfully." Green
+            return $Cred
+        } else {
+            Write-Status "Invalid credentials provided. Falling back to default domain context." Yellow
+            return $null
+        }
+    }
+
+    # 3. Return null if no valid credentials found - let calling code decide whether to prompt
     return $null
 }
 
 # Load credentials early with centralized function
 $credPathAD = "$PSScriptRoot\Private\vcaadcred.xml"
 $ADCredential = Get-ADSecureCredential -CredPath $credPathAD
+
+# If on domain and no explicit creds, set to null to use default context
+if ($isDomainJoined -and -not $ADCredential) {
+    $ADCredential = $null  # Explicitly use default
+    Write-Status "Using current domain credentials (no explicit creds needed)." Cyan
+}
 
 # Get script path and last write time
 $scriptPath = $MyInvocation.MyCommand.Path
@@ -267,34 +287,51 @@ filter Get-PingStatus {
 
 # Helper function for cached server fetching (optimization: adds expiration and reduces AD calls)
 function Get-CachedServers {
-    param($AU, [pscredential]$Credential = $ADCredential)
+    param($AU, [pscredential]$Credential = $null)
+
     $cacheKey = $AU
-    $cacheExpiry = 10  # Minutes
+    $cacheExpiry = $config.SecuritySettings.CredentialCacheMinutes  # Use config value
     if ($validAUs.ContainsKey($cacheKey) -and $validAUs[$cacheKey].Timestamp -is [DateTime] -and ((Get-Date) - $validAUs[$cacheKey].Timestamp).TotalMinutes -lt $cacheExpiry) {
         return $validAUs[$cacheKey].Servers
     }
+
     $SiteAU = Convert-VcaAu -AU $AU -Suffix ''
-    try {
-        # Use splatting for Get-ADComputer to improve readability
-        $adComputerParams = @{
-            Filter      = "Name -like '$SiteAU-ns*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'"
-            Server      = $config.InternalDomains.PrimaryDomain
-            ErrorAction = 'Stop'
-        }
+    $maxRetries = 2  # Prevent infinite loops
+    $retryCount = 0
+    $servers = @()
 
-        # Only add Credential if provided
-        if ($Credential) {
-            $adComputerParams.Add('Credential', $Credential)
-        }
+    do {
+        try {
+            $adComputerParams = @{
+                Filter      = "Name -like '$SiteAU-ns*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'"
+                Server      = $config.InternalDomains.PrimaryDomain
+                ErrorAction = 'Stop'
+            }
 
-        $servers = Get-ADComputer @adComputerParams | Select-Object -ExpandProperty Name | Sort-Object Name
-        $validAUs[$cacheKey] = @{ Servers = $servers; Timestamp = Get-Date }
-        return $servers
-    } catch {
-        Write-Host "Failed to query servers for AU $AU. Error: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Log "Failed to query servers for AU $AU. Error: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
-        return @()
-    }
+            # Only add Credential if explicitly provided and valid (don't force it)
+            if ($Credential -and (Test-ADCredentials $Credential)) {
+                $adComputerParams['Credential'] = $Credential
+            }
+
+            $servers = Get-ADComputer @adComputerParams | Select-Object -ExpandProperty Name | Sort-Object Name
+            $validAUs[$cacheKey] = @{ Servers = $servers; Timestamp = Get-Date }
+            return $servers
+        } catch {
+            $retryCount++
+            Write-Status "Failed to query servers for AU $AU (Attempt $retryCount/$maxRetries). Error: $($_.Exception.Message)" Red
+            Write-Log "Server query failed: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
+
+            if ($_.Exception.Message -match "access denied|permission|credential" -and $retryCount -lt $maxRetries) {
+                Write-Status "Access denied with current credentials. Prompting for alternative AD credentials..." Yellow
+                $Credential = Get-ADSecureCredential -CredPath $credPathAD -ForcePrompt
+            } else {
+                Write-Status "Max retries reached or non-credential error. Skipping server query." Red
+                return @()
+            }
+        }
+    } while ($retryCount -lt $maxRetries)
+
+    return @()
 }
 
 # Function to make API call with optional auth and retries

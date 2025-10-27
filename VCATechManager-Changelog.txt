@@ -2,6 +2,16 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.32 - 2025-10-27
++ AD AUTHENTICATION FIX: Implemented graceful credential fallback to prevent infinite credential prompt loops
++ Enhanced Get-CachedServers with retry logic: tries default domain context first, prompts only on access denied errors
++ Added ForcePrompt parameter to Get-ADSecureCredential for controlled credential prompting
++ Improved credential handling: prioritizes current user's domain credentials (Kerberos) over explicit credentials
++ Added retry limits (max 2 attempts) to prevent infinite loops during AD queries
++ Enhanced error handling: differentiates between credential errors and other AD failures
++ Fixed AU validation loops: server queries now fail gracefully without repeated prompts
++ DEVELOPMENT RULE: VCAHospLauncher.ps1 is reference-only - do not modify, all development in VCATechManager.ps1
+
 v1.31 - 2025-10-27
 + SHAREPOINT AUTHENTICATION FIX: Updated Connect-PnPOnline to connect to base SharePoint URL instead of full site URL
 + Fixed Get-PnPFile to use full site-relative paths (/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx) for reliable file access
