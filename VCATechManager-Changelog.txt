@@ -2,6 +2,16 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.37 - 2025-10-27
++ PNP POWERSHELL INTEGRATION: Replaced Invoke-WebRequest with PnP.PowerShell for modern SharePoint authentication
++ TRUSTED SITES CONFIGURATION: Automatic registry setup for vcaantech.com to enable Windows SSO/MFA compatibility
++ USERAGENT FIX: Resolved PowerShell 5.1 compatibility issue with UserAgent enum by using proper Chrome string
++ CONSOLE COLOR MANAGEMENT: Added color reset after PnP operations to maintain black background/white text theme
++ SUPPRESSED UPDATE MESSAGES: Disabled PnP PowerShell version update notifications for cleaner output
++ AUTOMATIC HOSPITAL MASTER UPDATES: Script now checks for and downloads hospital master updates on startup
++ ENHANCED 14U FUNCTIONALITY: Improved hospital master update process with better error handling and user feedback
++ UI CONSISTENCY: Fixed console color changes during SharePoint authentication and file operations
+
 v1.36 - 2025-10-27
 + SHAREPOINT AUTH IMPROVEMENTS: Enhanced authentication with WebRequestSession for better cookie handling
 + Added Windows SSO support: Users can attempt domain authentication by entering blank credentials

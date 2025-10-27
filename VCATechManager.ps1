@@ -1,7 +1,23 @@
 # Combined PowerShell Script with Menu Options
 
+# --- FIX: Add vcaantech.com to Trusted Sites for SSO/MFA compatibility ---
+$TrustedSitesPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains\vcaantech.com\'
+
+if (-not (Get-Item -Path $TrustedSitesPath -ErrorAction Ignore)) {
+    try {
+        Write-Status "Adding vcaantech.com to Internet Explorer Trusted Sites (Zone 2)..." Cyan
+        New-Item -Path $TrustedSitesPath | Out-Null
+        # Zone 2 is Trusted Sites. The '*' item applies to all protocols (HTTP/HTTPS)
+        New-ItemProperty -Path $TrustedSitesPath -Name '*' -Value 2 -Type DWORD | Out-Null
+        Write-Status "Registry updated. This helps with SharePoint SSO." Green
+    } catch {
+        Write-Status "Warning: Could not update registry for Trusted Sites. SharePoint authentication may fail." Yellow
+    }
+}
+# --- END Trusted Site Fix ---
+
 # Set version
-$version = "1.36"  # SHAREPOINT AUTH IMPROVEMENTS: WebRequestSession, SSO support, and proper success handling
+$version = "1.37"  # PNP POWERSHELL INTEGRATION: Modern SharePoint auth, auto-updates, and UI consistency
 
 # Load configuration file
 $configPath = "$PSScriptRoot\Private\config.json"
@@ -485,105 +501,77 @@ function Sync-Repo {
 # --- REVISED Function for PS 5.1 Compatible SharePoint Download and Credential Saving ---
 function Update-HospitalMaster {
     param(
-        [string]$SharePointBaseUrl,
-        [string]$HospitalMasterPath,
-        [string]$DestinationPath,
-        [System.Management.Automation.PSCredential]$ExistingCredential, # Loaded from disk
-        [string]$CredPathSPO # Path to save credentials
+        [string]$SharePointBaseUrl = 'https://vca365.sharepoint.com/sites/WOOFconnect/regions',
+        [string]$HospitalMasterPath = '/Documents/HOSPITALMASTER.xlsx',
+        [string]$DestinationPath = "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx",
+        [System.Management.Automation.PSCredential]$ExistingCredential, # Loaded from disk (not used with PnP.PowerShell)
+        [string]$CredPathSPO # Path to save credentials (not used with PnP.PowerShell)
     )
 
-    $SPO_Credential = $ExistingCredential
-    $maxTries = 3
-    $tryCount = 0
+    # Use PnP.PowerShell approach like VCAHospLauncher.ps1 for better authentication handling
+    $CsvPath = "$PSScriptRoot\Private\csv"
+    $HospitalMasterXlsx = "$CsvPath\HOSPITALMASTER.xlsx"
+    $HospitalMasterXlsxNew = "$CsvPath\HOSPITALMASTER_new.xlsx"
 
-    do {
-        $tryCount++
-        $isSuccess = $false
-
-        # 1. Credential Acquisition
-        if (-not $SPO_Credential) {
-            Write-Status "--- SharePoint Credentials Required (Attempt $tryCount of $maxTries) ---" Yellow
-            Write-Status "HINT: If you use MFA, you must enter an App Password, not your primary password." Yellow
-            Write-Status "HINT: To attempt Windows SSO, enter a blank username and password." Yellow
-            $SPO_Credential = Get-Credential -Message "Enter your Office 365/SharePoint Online Username and Password. Press Cancel to skip download."
-
-            # Check for user cancellation
-            if (-not $SPO_Credential) {
-                Write-Status "Credential entry cancelled. Aborting download." Yellow
-                return $false
-            }
-        }
-
-        try {
-            $DownloadUrl = "$($SharePointBaseUrl)$($HospitalMasterPath)"
-            Write-Status "Attempting download from: $DownloadUrl" Cyan
-
-            # Use Invoke-WebRequest with a session for better cookie handling
-            $session = New-Object -TypeName Microsoft.PowerShell.Commands.WebRequestSession
-            $session.UserAgent = [Microsoft.PowerShell.Commands.UserAgent]::Chrome
-
-            $iwrParams = @{
-                Uri = $DownloadUrl
-                WebSession = $session
-                UseBasicParsing = $true
-                ErrorAction = 'Stop'
-            }
-
-            # Use the provided credential or attempt default domain credentials (SSO)
-            if (-not [string]::IsNullOrWhiteSpace($SPO_Credential.UserName)) {
-                $iwrParams.Credential = $SPO_Credential
-            } else {
-                # If the user enters a blank credential, try Windows SSO
-                $iwrParams.UseDefaultCredentials = $true
-                Write-Status "Attempting Windows Default Credentials (SSO)..." Cyan
-            }
-
-            # 2. Perform Download
-            $DownloadAttempt = Invoke-WebRequest @iwrParams
-
-            # 3. Content Validation (Checks for HTML error pages)
-            $ContentType = $DownloadAttempt.Headers.'Content-Type'
-            if ($ContentType -notlike "*openxmlformats-officedocument.spreadsheetml.sheet*" -and $ContentType -notlike "*ms-excel*") {
-                throw "Downloaded content validation failed. Received '$ContentType'. Authentication likely failed."
-            }
-
-            # 4. Save the file content (Binary content is in the Content property for PS 5.1)
-            $DownloadAttempt.Content | Out-File $DestinationPath -Encoding Byte -Force
-
-            # 5. Final check to confirm the file is non-zero size
-            if ((Get-Item $DestinationPath).Length -eq 0) {
-                 throw "Downloaded file is 0 bytes. Authentication likely failed, or the file is empty/corrupt."
-            }
-
-            Write-Status "Hospital Master successfully downloaded to $DestinationPath" Green
-            $isSuccess = $true
-
-            # 6. Offer to save credentials if they were just entered (only if success)
-            if ($SPO_Credential -and -not $ExistingCredential -and -not $iwrParams.UseDefaultCredentials) {
-                $saveChoice = Read-Host "Save these SharePoint credentials for the next session? (y/n)"
-                if ($saveChoice.ToLower() -eq 'y') {
-                    $SPO_Credential | Export-Clixml -Path $CredPathSPO -Force
-                    Write-Status "SharePoint credentials saved to $CredPathSPO." Green
-                }
-            }
-
-        } catch {
-            $errorMessage = $_.Exception.Message
-            Write-Status "Download attempt failed: $($errorMessage)" Red
-            # Clear the credential so it prompts again on the next loop iteration
-            $SPO_Credential = $null
-            # Remove the potentially corrupt file
-            if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force }
-            $isSuccess = $false
-        }
-
-    } while (-not $isSuccess -and $tryCount -lt $maxTries)
-
-    if (-not $isSuccess) {
-        Write-Status "Maximum download attempts reached. Hospital Master download failed." Red
-        return $false
+    if (-not (Test-Path -Path $CsvPath)) {
+        New-Item -ItemType Directory -Path $CsvPath | Out-Null
     }
-    return $true # Success: Exit function
+
+    # Download using PnP.PowerShell (handles modern auth including MFA/SSO)
+    try {
+        Write-Status "Connecting to SharePoint Online..." Cyan
+        Connect-PnPOnline -Url $SharePointBaseUrl -UseWebLogin -ErrorAction Stop -WarningAction Ignore
+        # Reset console colors after PnP.PowerShell connection (it may change them)
+        $host.UI.RawUI.BackgroundColor = "Black"
+        $host.UI.RawUI.ForegroundColor = "White"
+
+        Write-Status "Downloading HOSPITALMASTER.xlsx..." Cyan
+        Get-PnPFile -Url $HospitalMasterPath -Path $CsvPath -Filename 'HOSPITALMASTER_new.xlsx' -AsFile -Force -ErrorAction Stop
+
+        # Check if we have an existing file to compare
+        if (Test-Path -Path $HospitalMasterXlsx) {
+            # Get file hash to check if it's different
+            $CurrentHash = Get-FileHash -Path $HospitalMasterXlsx -Algorithm SHA256
+            $NewHash = Get-FileHash -Path $HospitalMasterXlsxNew -Algorithm SHA256
+
+            # Check if downloaded file is newer (different)
+            if ($CurrentHash.Hash -ne $NewHash.Hash) {
+                Write-Status "New version of hospital master found... updating" Green
+                # Rename and move new file
+                Move-Item -Path $HospitalMasterXlsxNew -Destination $HospitalMasterXlsx -Force
+                Write-Status "Hospital Master successfully updated" Green
+            } else {
+                # Files are the same
+                $HospitalFileDate = '{0:M/dd/yyyy h:mm tt}' -f (Get-Item -Path $HospitalMasterXlsx | Select-Object -ExpandProperty LastWriteTime)
+                Write-Status "Hospital master XLSX is already up-to-date (Last Write Time: $HospitalFileDate)" Cyan
+                # Remove duplicate file
+                Remove-Item -Path $HospitalMasterXlsxNew
+            }
+        } else {
+            # No existing file, move the new one
+            Write-Status "Hospital master XLSX downloaded successfully" Green
+            Move-Item -Path $HospitalMasterXlsxNew -Destination $HospitalMasterXlsx -Force
+        }
+
+        return $true # Success
+
+    } catch {
+        $errorMessage = $_.Exception.Message
+        Write-Status "Download failed: $($errorMessage)" Red
+
+        # Clean up any partial downloads
+        if (Test-Path -Path $HospitalMasterXlsxNew) {
+            Remove-Item -Path $HospitalMasterXlsxNew -Force
+        }
+
+        # If we have a local copy, mention it
+        if (Test-Path -Path $HospitalMasterXlsx) {
+            $HospitalFileDate = '{0:M/dd/yyyy h:mm tt}' -f (Get-Item -Path $HospitalMasterXlsx | Select-Object -ExpandProperty LastWriteTime)
+            Write-Status "Using existing local hospital master XLSX (Last Write Time: $HospitalFileDate)" Yellow
+        }
+
+        return $false # Failure
+    }
 }
 
 # Set global script root for use in functions
@@ -681,10 +669,13 @@ try {
         Write-Log "Imported module: PSTerminalServices"
         Import-Module -Name "$PSScriptRoot\Private\lib\ImportExcel" -ErrorAction Stop  # Added for HOSPITALMASTER loading
         Write-Log "Imported module: ImportExcel"
-        # Suppress PnP PowerShell update check (commented out for PS 5.1 compatibility)
-        # $env:PNPPOWERSHELL_UPDATECHECK = 'Off'
-        # Import-Module -Name "$PSScriptRoot\Private\lib\PnP.PowerShell" -ErrorAction Stop  # Added for SharePoint access (requires PS 7.4.6+)
-        # Write-Log "Imported module: PnP.PowerShell"
+        # Suppress PnP PowerShell update check
+        $env:PNPPOWERSHELL_UPDATECHECK = 'Off'
+        Import-Module -Name "$PSScriptRoot\Private\lib\PnP.PowerShell" -ErrorAction Stop  # Using PnP.PowerShell for SharePoint access (works with PS 5.1)
+        Write-Log "Imported module: PnP.PowerShell"
+        # Reset console colors after PnP.PowerShell import (it may change them)
+        $host.UI.RawUI.BackgroundColor = "Black"
+        $host.UI.RawUI.ForegroundColor = "White"
         Import-Module -Name "$PSScriptRoot\Private\lib\Posh-SSH" -ErrorAction Stop  # Added for SSH functionality
         Write-Log "Imported module: Posh-SSH"
         Import-Module -Name "$PSScriptRoot\Private\lib\VMware.VimAutomation.Sdk" -ErrorAction Stop  # Added for VMware functionality
@@ -754,31 +745,30 @@ try {
     if (-not $HospitalMaster) {
         $hospitalMasterPath = "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx"
 
-        if (Test-Path $hospitalMasterPath) {
+        # Always attempt to update/download hospital master on script load
+        Write-Status "Checking for hospital master updates..." Cyan
+        $downloadSuccess = Update-HospitalMaster -DestinationPath $hospitalMasterPath
+
+        if ($downloadSuccess) {
+            # Load the hospital master file (whether newly downloaded or updated)
             try {
                 $HospitalMaster = Import-Excel -Path $hospitalMasterPath -WorksheetName Misc
-                Write-Log "Hospital master loaded successfully from $hospitalMasterPath"
+                Write-Log "Hospital master loaded successfully"
             } catch {
-                Write-Host "Failed to load hospital master: $($_.Exception.Message)" -ForegroundColor Yellow
+                Write-Host "Failed to load hospital master: $($_.Exception.Message)" -ForegroundColor Red
                 Write-Log "Hospital master load error: $($_.Exception.Message)"
             }
         } else {
-            # Attempt automatic download from SharePoint Online
-            Write-Status "Hospital Master not found locally, downloading..." Yellow
-            $downloadSuccess = Update-HospitalMaster -SharePointBaseUrl $config.InternalDomains.SharePointBaseUrl `
-                -HospitalMasterPath $config.InternalDomains.HospitalMasterPath `
-                -DestinationPath $hospitalMasterPath `
-                -ExistingCredential $SPOCredential `
-                -CredPathSPO $credPathSPO
-
-            if ($downloadSuccess) {
-                # Move the success message here, after the function returns true
-                Write-Status "Hospital master downloaded from SharePoint Online" Green
-                Write-Log "Hospital master downloaded from SharePoint Online"
-
-                # Load the downloaded file
-                $HospitalMaster = Import-Excel -Path $hospitalMasterPath -WorksheetName Misc
-                Write-Log "Hospital master loaded successfully after download"
+            # If download/update failed, try to load existing local file if it exists
+            if (Test-Path $hospitalMasterPath) {
+                try {
+                    $HospitalMaster = Import-Excel -Path $hospitalMasterPath -WorksheetName Misc
+                    Write-Status "Using existing local hospital master (download failed)" Yellow
+                    Write-Log "Hospital master loaded from local file (download failed)"
+                } catch {
+                    Write-Host "Failed to load existing hospital master: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Log "Hospital master load error: $($_.Exception.Message)"
+                }
             } else {
                 Write-Status "Hospital Master download failed. No local copy available." Red
                 Write-Status "Please ensure you have valid Office 365/SharePoint Online credentials and network access." Yellow
@@ -3071,11 +3061,7 @@ try {
                 }
                 "14u" {
                     # Update Hospital Master
-                    Update-HospitalMaster -SharePointBaseUrl $config.InternalDomains.SharePointBaseUrl `
-                        -HospitalMasterPath $config.InternalDomains.HospitalMasterPath `
-                        -DestinationPath "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx" `
-                        -ExistingCredential $SPOCredential `
-                        -CredPathSPO $credPathSPO
+                    Update-HospitalMaster
                     # Reload hospital master after update
                     if (Test-Path "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx") {
                         $HospitalMaster = Import-Excel -Path "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx" -WorksheetName Misc
