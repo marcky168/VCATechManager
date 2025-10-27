@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.34"  # SHAREPOINT DOWNLOAD VALIDATION: Content-type checking to prevent HTML corruption
+$version = "1.35"  # SHAREPOINT CREDENTIAL SAVING: Persistent Office 365 authentication with retry logic
 
 # Load configuration file
 $configPath = "$PSScriptRoot\Private\config.json"
@@ -159,6 +159,23 @@ $ADCredential = Get-ADSecureCredential -CredPath $credPathAD
 if ($isDomainJoined -and -not $ADCredential) {
     $ADCredential = $null  # Explicitly use default
     Write-Status "Using current domain credentials (no explicit creds needed)." Cyan
+}
+
+# Add this section to store and load SharePoint Online Credentials
+$credPathSPO = "$PSScriptRoot\Private\vcaspocred.xml"
+$SPOCredential = $null
+
+# --- Load Saved SharePoint Online Credentials ---
+if (Test-Path $credPathSPO) {
+    try {
+        # Using Import-Clixml to securely load the saved PSCredential object
+        $SPOCredential = Import-Clixml $credPathSPO -ErrorAction Stop
+        Write-Status "SharePoint credentials loaded from disk." Green
+    } catch {
+        Write-Status "Warning: Failed to load SharePoint credentials: $($_.Exception.Message)" Yellow
+        # If loading fails (e.g., corrupt file), delete it so we can prompt again
+        Remove-Item $credPathSPO -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # Get script path and last write time
@@ -465,6 +482,79 @@ function Sync-Repo {
     }
 }
 
+# --- REVISED Function for PS 5.1 Compatible SharePoint Download with Credential Saving ---
+function Update-HospitalMaster {
+    param(
+        [string]$SharePointBaseUrl,
+        [string]$HospitalMasterPath,
+        [string]$DestinationPath,
+        [System.Management.Automation.PSCredential]$ExistingCredential, # Passed from main script
+        [string]$CredPathSPO # Path to save credentials
+    )
+
+    $SPO_Credential = $ExistingCredential
+    $maxTries = 3
+    $tryCount = 0
+
+    do {
+        $tryCount++
+
+        # 1. Prompt for credentials if none were loaded or if previous attempt failed
+        if (-not $SPO_Credential) {
+            Write-Status "Prompting for Office 365/SharePoint Credentials (Attempt $tryCount of $maxTries)..." Yellow
+            $SPO_Credential = Get-Credential -Message "Enter your Office 365/SharePoint Online Username (e.g., user@vcaantech.com) and Password. Press Cancel to skip download."
+
+            # Check for user cancellation
+            if (-not $SPO_Credential) {
+                Write-Status "Credential entry cancelled. Aborting download." Yellow
+                return $false
+            }
+        }
+
+        try {
+            $DownloadUrl = "$($SharePointBaseUrl)$($HospitalMasterPath)"
+            Write-Status "Attempting download from: $DownloadUrl" Cyan
+
+            # 2. Perform Download
+            $DownloadAttempt = Invoke-WebRequest -Uri $DownloadUrl -Credential $SPO_Credential -UseBasicParsing -ErrorAction Stop
+
+            # 3. Content Validation (Checks for HTML error pages)
+            $ContentType = $DownloadAttempt.Headers.'Content-Type'
+            if ($ContentType -notlike "*openxmlformats-officedocument.spreadsheetml.sheet*" -and $ContentType -notlike "*ms-excel*") {
+                throw "Downloaded content validation failed. Received '$ContentType'. Check credentials/path."
+            }
+
+            # 4. Save the file content
+            $DownloadAttempt.Content | Out-File $DestinationPath -Encoding Byte -Force
+
+            Write-Status "Hospital Master successfully downloaded to $DestinationPath" Green
+
+            # 5. Offer to save credentials if they were just entered
+            if (-not $ExistingCredential) {
+                $saveChoice = Read-Host "Save these SharePoint credentials for the next session? (y/n)"
+                if ($saveChoice.ToLower() -eq 'y') {
+                    $SPO_Credential | Export-Clixml -Path $CredPathSPO -Force
+                    Write-Status "SharePoint credentials saved to $CredPathSPO." Green
+                }
+            }
+            return $true # Success: Exit function
+
+        } catch {
+            $errorMessage = $_.Exception.Message
+            Write-Status "Download attempt failed: $($errorMessage)" Red
+            # Clear the credential so it prompts again on the next loop iteration
+            $SPO_Credential = $null
+            # Remove the potentially corrupt file
+            if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force }
+
+        }
+
+    } while ($tryCount -lt $maxTries)
+
+    Write-Status "Maximum download attempts reached. Hospital Master download failed." Red
+    return $false
+}
+
 # Set global script root for use in functions
 $global:ScriptRoot = $PSScriptRoot
 
@@ -645,7 +735,12 @@ try {
             # Attempt automatic download from SharePoint Online
             Write-Host "Hospital master file not found locally. Attempting download from SharePoint Online..." -ForegroundColor Cyan
             try {
-                Update-HospitalMaster -SharePointBaseUrl $config.InternalDomains.SharePointBaseUrl -HospitalMasterPath $config.InternalDomains.HospitalMasterPath -DestinationPath $hospitalMasterPath -ErrorAction Stop
+                Update-HospitalMaster -SharePointBaseUrl $config.InternalDomains.SharePointBaseUrl `
+                    -HospitalMasterPath $config.InternalDomains.HospitalMasterPath `
+                    -DestinationPath $hospitalMasterPath `
+                    -ExistingCredential $SPOCredential `
+                    -CredPathSPO $credPathSPO `
+                    -ErrorAction Stop
                 Write-Host "Hospital master downloaded successfully from SharePoint Online." -ForegroundColor Green
                 Write-Log "Hospital master downloaded from SharePoint Online"
 
@@ -2206,52 +2301,7 @@ try {
     }
 
     # Function for Update Hospital Master (copied from VCAHospLauncher.ps1)
-    # --- REVISED Function for PS 5.1 Compatible SharePoint Download ---
-    function Update-HospitalMaster {
-        param(
-            [string]$SharePointBaseUrl,
-            [string]$HospitalMasterPath,
-            [string]$DestinationPath
-        )
 
-        Write-Status "Prompting for Office 365/SharePoint Credentials..." Yellow
-        try {
-            # Prompt for Office 365 credentials
-            $SPO_Credential = Get-Credential -Message "Enter your Office 365/SharePoint Online Username (e.g., user@vcaantech.com) and Password"
-
-            $DownloadUrl = "$($SharePointBaseUrl)$($HospitalMasterPath)"
-            Write-Status "Attempting download from: $DownloadUrl" Cyan
-
-            # Use a reliable download method that can validate the content
-            $DownloadAttempt = Invoke-WebRequest -Uri $DownloadUrl -Credential $SPO_Credential -UseBasicParsing -ErrorAction Stop
-
-            # --- Content Validation ---
-            # If SharePoint authentication fails, it often returns an HTML page (like a login redirect).
-            # We check the content type to ensure it's not HTML.
-
-            $ContentType = $DownloadAttempt.Headers.'Content-Type'
-
-            if ($ContentType -notlike "*openxmlformats-officedocument.spreadsheetml.sheet*" -and $ContentType -notlike "*ms-excel*") {
-                # This means the content is likely an HTML error page or an unexpected file type.
-                throw "Downloaded content type validation failed. Received '$ContentType'. This often means authentication failed, or the file path is incorrect."
-            }
-
-            # Save the content (Binary content is in the RawContent)
-            $DownloadAttempt.Content | Out-File $DestinationPath -Encoding Byte -Force
-
-            Write-Status "Hospital Master successfully downloaded to $DestinationPath" Green
-            return $true
-
-        } catch {
-            $errorMessage = $_.Exception.Message
-            Write-Status "Failed to download Hospital Master from SharePoint." Red
-            Write-Status "Error: $($errorMessage)" Red
-            Write-Status "Please ensure the Office 365 credentials entered are correct and have access to the SharePoint path." Yellow
-            # Remove the potentially corrupt file before throwing
-            if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force }
-            throw "Failed to download Hospital Master from SharePoint: $($errorMessage)"
-        }
-    }
 
 
 
@@ -2989,7 +3039,11 @@ try {
                 }
                 "14u" {
                     # Update Hospital Master
-                    Update-HospitalMaster -SharePointBaseUrl $config.InternalDomains.SharePointBaseUrl -HospitalMasterPath $config.InternalDomains.HospitalMasterPath -DestinationPath "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx"
+                    Update-HospitalMaster -SharePointBaseUrl $config.InternalDomains.SharePointBaseUrl `
+                        -HospitalMasterPath $config.InternalDomains.HospitalMasterPath `
+                        -DestinationPath "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx" `
+                        -ExistingCredential $SPOCredential `
+                        -CredPathSPO $credPathSPO
                     # Reload hospital master after update
                     if (Test-Path "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx") {
                         $HospitalMaster = Import-Excel -Path "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx" -WorksheetName Misc

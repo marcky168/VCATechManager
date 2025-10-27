@@ -2,6 +2,16 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.35 - 2025-10-27
++ SHAREPOINT CREDENTIAL SAVING: Added persistent Office 365/SharePoint credential storage and loading
++ Implemented vcaspocred.xml for secure SharePoint credential caching between sessions
++ Enhanced Update-HospitalMaster with retry logic (up to 3 attempts) for failed authentication
++ Fixed function definition order: Moved Update-HospitalMaster before its first call to prevent "not recognized" errors
++ Added credential prompt cancellation support - users can skip download by canceling credential entry
++ Improved credential management: Separate AD and SharePoint credential handling
++ Added user choice for credential saving: Prompts whether to save SharePoint credentials for future use
++ Enhanced error handling: Automatic cleanup of corrupt downloads and clear retry messaging
+
 v1.34 - 2025-10-27
 + SHAREPOINT DOWNLOAD VALIDATION: Added content-type checking to prevent HTML error pages from being saved as Excel files
 + Enhanced Update-HospitalMaster with Content-Type header validation for Excel spreadsheets
