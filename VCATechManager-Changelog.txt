@@ -2,6 +2,13 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.40 - 2025-10-27
++ CONFIGURATION FLEXIBILITY: Added default configuration values for testing mode when Private/config.json is missing
++ SECURE DISTRIBUTION SUPPORT: Script now runs in testing mode with placeholder values, allowing secure separate distribution of config files
++ ENHANCED ERROR HANDLING: Improved config loading with graceful fallback to defaults and clear security warnings
++ FUNCTION REORDERING: Moved logging and helper functions earlier to prevent initialization errors
++ README DOCUMENTATION: Added comprehensive setup instructions for secure config file distribution
+
 v1.39 - 2025-10-27
 + CREDENTIAL MANAGEMENT ENHANCEMENT: Updated option 11 to display saved admin credentials in a grid view similar to VCAHospLauncher option 99
 + INTERACTIVE CREDENTIAL MANAGEMENT: Option 11 now shows username with masked password and provides options to delete existing credentials or update with new ones

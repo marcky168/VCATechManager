@@ -2,11 +2,51 @@
 # --- END Trusted Site Fix ---
 
 # Set version
-$version = "1.39"  # CREDENTIAL MANAGEMENT: Enhanced option 11 to show saved credentials and allow delete/update operations
+$version = "1.40"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+
+# Configurable Logging: Default to verbose logging enabled (moved early for config loading)
+$verboseLogging = $true
+
+# New: Logging toggle and path (create early for initial errors)
+$logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
+# Create log file early to ensure it exists
+New-Item -Path $logPath -ItemType File -Force | Out-Null
 
 # Helper function for centralized Write-Host customization (moved early for config loading)
 function Write-Status ($Message, $Color = "White") {
     Write-Host $Message -ForegroundColor $Color
+}
+
+# Helper functions moved outside try block for reliability (moved early for config loading)
+function Write-Log {
+    param([string]$Message)
+    Add-Content -Path $logPath -Value "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")] $Message"
+}
+
+# Function to provide default configuration values for testing
+function Get-DefaultConfig {
+    return @{
+        InternalDomains = @{
+            PrimaryDomain = "example.local"
+            TrustedSitesDomain = "example.com"
+        }
+        SecuritySettings = @{
+            RequireDomainJoin = $false
+            CredentialCacheMinutes = 10
+        }
+        NetworkSettings = @{
+            PrimaryDHCPServer = "dhcp.example.local"
+            DHCPServers = @("dhcp1.example.local", "dhcp2.example.local")
+        }
+        ServerNaming = @{
+            DHCPServerPattern = "dhcp*"
+        }
+        FilePaths = @{
+            HospitalMasterPath = "/sites/example/regions/Documents/HOSPITALMASTER.xlsx"
+            SharePointBaseUrl = "https://example.sharepoint.com"
+        }
+    }
 }
 
 # Load configuration file
@@ -19,18 +59,13 @@ if (Test-Path $configPath) {
     } catch {
         Write-Status "Warning: Could not load configuration file. Using default values." Yellow
         Write-Log "Config load error: $($_.Exception.Message)"
+        $config = Get-DefaultConfig
     }
 } else {
-    Write-Status "Warning: Configuration file not found. Using default values." Yellow
-    Write-Log "Config file not found at $configPath"
-}
-
-# Require config file for sensitive information - no hardcoded defaults
-if (-not $config) {
-    Write-Host "ERROR: Private/config.json file is required but not found or invalid." -ForegroundColor Red
-    Write-Host "Please create the config.json file with your organization's internal settings." -ForegroundColor Yellow
-    Write-Host "See the repository README for configuration instructions." -ForegroundColor Yellow
-    exit 1
+    Write-Status "Warning: Configuration file not found. Using default values for testing." Yellow
+    Write-Status "SECURITY NOTICE: Default values are for testing only. Create Private/config.json for secure production use." Red
+    Write-Log "Config file not found at $configPath - using defaults"
+    $config = Get-DefaultConfig
 }
 
 # Security check: Verify domain membership if required
@@ -58,20 +93,7 @@ $host.UI.RawUI.BackgroundColor = "Black"
 $host.UI.RawUI.ForegroundColor = "White"
 Clear-Host
 
-# Configurable Logging: Default to verbose logging enabled
-$verboseLogging = $true
 
-# New: Logging toggle and path (create early for initial errors)
-$logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
-# Create log file early to ensure it exists
-New-Item -Path $logPath -ItemType File -Force | Out-Null
-
-# Helper functions moved outside try block for reliability
-function Write-Log {
-    param([string]$Message)
-    Add-Content -Path $logPath -Value "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")] $Message"
-}
 
 # Helper function for conditional logging (optimization: only log if verbose)
 function Write-ConditionalLog {
