@@ -2246,7 +2246,7 @@ try {
     function Get-VcaHospitalMaster {
         [CmdletBinding()]
         param(
-            $SharePointUrl = $config.InternalDomains.SharePointBaseUrl + '/sites/WOOFconnect/regions'
+            $SharePointUrl = $config.InternalDomains.SharePointBaseUrl
         )
 
         # Check if PnP.PowerShell module is available
@@ -2272,9 +2272,9 @@ try {
             Write-Status "Connecting to SharePoint Online..." Yellow
             Connect-PnPOnline -Url $SharePointUrl -Interactive -ErrorAction Stop -WarningAction Ignore
 
-            # Download the file
+            # Download the file using the full site-relative path
             Write-Status "Downloading Hospital Master file..." Yellow
-            Get-PnPFile -Url '/Documents/HOSPITALMASTER.xlsx' -Path "$PSScriptRoot\private\csv" -Filename 'HOSPITALMASTER_new.xlsx' -AsFile -Force -ErrorAction Stop
+            Get-PnPFile -Url '/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx' -Path "$PSScriptRoot\private\csv" -Filename 'HOSPITALMASTER_new.xlsx' -AsFile -Force -ErrorAction Stop
 
             Write-Status "Hospital Master file downloaded successfully" Green
         }
