@@ -2,6 +2,16 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.36 - 2025-10-27
++ SHAREPOINT AUTH IMPROVEMENTS: Enhanced authentication with WebRequestSession for better cookie handling
++ Added Windows SSO support: Users can attempt domain authentication by entering blank credentials
++ Implemented App Password guidance: Clear instructions for MFA users to use App Passwords instead of primary passwords
++ Fixed success message timing: Download success messages only shown after actual successful validation
++ Added file size validation: Ensures downloaded files are non-zero bytes to catch empty/corrupt downloads
++ Improved error flow: Prevents "file not found" errors after failed downloads by checking return values
++ Enhanced credential handling: Better distinction between saved credentials, SSO attempts, and manual entry
++ Chrome User-Agent: Uses Chrome user agent string for better SharePoint compatibility
+
 v1.35 - 2025-10-27
 + SHAREPOINT CREDENTIAL SAVING: Added persistent Office 365/SharePoint credential storage and loading
 + Implemented vcaspocred.xml for secure SharePoint credential caching between sessions
