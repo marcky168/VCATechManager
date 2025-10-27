@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.33"  # POWERSHELL 5.1 COMPATIBILITY: Removed PnP.PowerShell dependency for SharePoint access
+$version = "1.34"  # SHAREPOINT DOWNLOAD VALIDATION: Content-type checking to prevent HTML corruption
 
 # Load configuration file
 $configPath = "$PSScriptRoot\Private\config.json"
@@ -2206,7 +2206,7 @@ try {
     }
 
     # Function for Update Hospital Master (copied from VCAHospLauncher.ps1)
-    # PS 5.1 Compatible SharePoint Download Function (Replaces PnP.PowerShell dependency)
+    # --- REVISED Function for PS 5.1 Compatible SharePoint Download ---
     function Update-HospitalMaster {
         param(
             [string]$SharePointBaseUrl,
@@ -2214,19 +2214,30 @@ try {
             [string]$DestinationPath
         )
 
-        Write-Status "Prompting for Office 365/SharePoint Credentials to download Hospital Master..." Yellow
+        Write-Status "Prompting for Office 365/SharePoint Credentials..." Yellow
         try {
-            # The credential entered here MUST be an Office 365/SharePoint Online credential
+            # Prompt for Office 365 credentials
             $SPO_Credential = Get-Credential -Message "Enter your Office 365/SharePoint Online Username (e.g., user@vcaantech.com) and Password"
 
-            # Construct the direct download link. We use the site-relative path from config.
             $DownloadUrl = "$($SharePointBaseUrl)$($HospitalMasterPath)"
-
             Write-Status "Attempting download from: $DownloadUrl" Cyan
 
-            # Use Invoke-WebRequest with the SharePoint credential
-            # The UseBasicParsing flag is essential for PS 5.1
-            Invoke-WebRequest -Uri $DownloadUrl -Credential $SPO_Credential -OutFile $DestinationPath -UseBasicParsing -ErrorAction Stop
+            # Use a reliable download method that can validate the content
+            $DownloadAttempt = Invoke-WebRequest -Uri $DownloadUrl -Credential $SPO_Credential -UseBasicParsing -ErrorAction Stop
+
+            # --- Content Validation ---
+            # If SharePoint authentication fails, it often returns an HTML page (like a login redirect).
+            # We check the content type to ensure it's not HTML.
+
+            $ContentType = $DownloadAttempt.Headers.'Content-Type'
+
+            if ($ContentType -notlike "*openxmlformats-officedocument.spreadsheetml.sheet*" -and $ContentType -notlike "*ms-excel*") {
+                # This means the content is likely an HTML error page or an unexpected file type.
+                throw "Downloaded content type validation failed. Received '$ContentType'. This often means authentication failed, or the file path is incorrect."
+            }
+
+            # Save the content (Binary content is in the RawContent)
+            $DownloadAttempt.Content | Out-File $DestinationPath -Encoding Byte -Force
 
             Write-Status "Hospital Master successfully downloaded to $DestinationPath" Green
             return $true
@@ -2235,9 +2246,9 @@ try {
             $errorMessage = $_.Exception.Message
             Write-Status "Failed to download Hospital Master from SharePoint." Red
             Write-Status "Error: $($errorMessage)" Red
-            Write-Status "Ensure the following:" Yellow
-            Write-Status "1. The Office 365 credentials entered are valid." Yellow
-            Write-Status "2. Your network allows access to $SharePointBaseUrl." Yellow
+            Write-Status "Please ensure the Office 365 credentials entered are correct and have access to the SharePoint path." Yellow
+            # Remove the potentially corrupt file before throwing
+            if (Test-Path $DestinationPath) { Remove-Item $DestinationPath -Force }
             throw "Failed to download Hospital Master from SharePoint: $($errorMessage)"
         }
     }

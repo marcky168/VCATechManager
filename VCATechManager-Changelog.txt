@@ -2,6 +2,15 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.34 - 2025-10-27
++ SHAREPOINT DOWNLOAD VALIDATION: Added content-type checking to prevent HTML error pages from being saved as Excel files
++ Enhanced Update-HospitalMaster with Content-Type header validation for Excel spreadsheets
++ Improved error handling: Automatically removes corrupt files when content validation fails
++ Fixed "file is not a valid Package file" errors caused by downloading HTML instead of Excel
++ Added specific error messages for authentication failures vs file path issues
++ Binary file saving: Uses Out-File with -Encoding Byte to properly save Excel content
++ Prevents Import-Excel failures by ensuring only valid Excel files are downloaded and saved
+
 v1.33 - 2025-10-27
 + POWERSHELL 5.1 COMPATIBILITY: Removed PnP.PowerShell module dependency that required PS 7.4.6+
 + Implemented Invoke-WebRequest based SharePoint download using Office 365 credentials
