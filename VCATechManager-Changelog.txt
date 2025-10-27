@@ -2,6 +2,13 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.31 - 2025-10-27
++ SHAREPOINT AUTHENTICATION FIX: Updated Connect-PnPOnline to connect to base SharePoint URL instead of full site URL
++ Fixed Get-PnPFile to use full site-relative paths (/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx) for reliable file access
++ Enhanced OAuth authentication flow with proper base URL connection and site-relative file paths
++ Improved SharePoint connection reliability by connecting to tenant root and using absolute paths
++ DEVELOPMENT NOTE: VCAHospLauncher.ps1 is now reference-only and should not be modified - all active development occurs in VCATechManager.ps1
+
 v1.30 - 2025-10-27
 + SHAREPOINT AUTHENTICATION MODERNIZATION: Replaced AD credential-based Hospital Master downloads with PnP.PowerShell OAuth authentication
 + Implemented interactive Office 365/SharePoint Online authentication for secure cloud file access

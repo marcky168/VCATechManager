@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.30"  # SHAREPOINT AUTHENTICATION MODERNIZATION: OAuth-based Hospital Master downloads
+$version = "1.31"  # SHAREPOINT AUTHENTICATION FIX: Base URL connection and full site-relative paths
 
 # Load configuration file
 $configPath = "$PSScriptRoot\Private\config.json"
