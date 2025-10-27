@@ -1,23 +1,13 @@
 # Combined PowerShell Script with Menu Options
-
-# --- FIX: Add vcaantech.com to Trusted Sites for SSO/MFA compatibility ---
-$TrustedSitesPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains\vcaantech.com\'
-
-if (-not (Get-Item -Path $TrustedSitesPath -ErrorAction Ignore)) {
-    try {
-        Write-Status "Adding vcaantech.com to Internet Explorer Trusted Sites (Zone 2)..." Cyan
-        New-Item -Path $TrustedSitesPath | Out-Null
-        # Zone 2 is Trusted Sites. The '*' item applies to all protocols (HTTP/HTTPS)
-        New-ItemProperty -Path $TrustedSitesPath -Name '*' -Value 2 -Type DWORD | Out-Null
-        Write-Status "Registry updated. This helps with SharePoint SSO." Green
-    } catch {
-        Write-Status "Warning: Could not update registry for Trusted Sites. SharePoint authentication may fail." Yellow
-    }
-}
 # --- END Trusted Site Fix ---
 
 # Set version
-$version = "1.37"  # PNP POWERSHELL INTEGRATION: Modern SharePoint auth, auto-updates, and UI consistency
+$version = "1.39"  # CREDENTIAL MANAGEMENT: Enhanced option 11 to show saved credentials and allow delete/update operations
+
+# Helper function for centralized Write-Host customization (moved early for config loading)
+function Write-Status ($Message, $Color = "White") {
+    Write-Host $Message -ForegroundColor $Color
+}
 
 # Load configuration file
 $configPath = "$PSScriptRoot\Private\config.json"
@@ -35,35 +25,12 @@ if (Test-Path $configPath) {
     Write-Log "Config file not found at $configPath"
 }
 
-# Set default config values if not loaded
+# Require config file for sensitive information - no hardcoded defaults
 if (-not $config) {
-    $config = @{
-        InternalDomains = @{
-            PrimaryDomain = "vcaantech.com"
-            SharePointBaseUrl = "https://vca365.sharepoint.com"
-            HospitalMasterPath = "/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx"
-        }
-        ServerNaming = @{
-            DomainPrefix = "h"
-            NameServerSuffix = "-ns"
-            UtilSuffix = "-util"
-            DatabaseSuffix = "-db"
-            VMwareSuffix = "-vm"
-            ILOSuffix = "-ilo"
-        }
-        NetworkSettings = @{
-            PingTimeout = 100
-            MaxConcurrency = 10
-            DefaultTimeZone = "Pacific Standard Time"
-            DHCPServers = @("phhospdhcp1.vcaantech.com", "phhospdhcp2.vcaantech.com")
-            PrimaryDHCPServer = "phhospdhcp2.vcaantech.com"
-        }
-        SecuritySettings = @{
-            RequireDomainJoin = $true
-            ValidateCredentials = $true
-            CredentialCacheMinutes = 10
-        }
-    }
+    Write-Host "ERROR: Private/config.json file is required but not found or invalid." -ForegroundColor Red
+    Write-Host "Please create the config.json file with your organization's internal settings." -ForegroundColor Yellow
+    Write-Host "See the repository README for configuration instructions." -ForegroundColor Yellow
+    exit 1
 }
 
 # Security check: Verify domain membership if required
@@ -99,11 +66,6 @@ $logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_H
 if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
 # Create log file early to ensure it exists
 New-Item -Path $logPath -ItemType File -Force | Out-Null
-
-# Helper function for centralized Write-Host customization
-function Write-Status ($Message, $Color = "White") {
-    Write-Host $Message -ForegroundColor $Color
-}
 
 # Helper functions moved outside try block for reliability
 function Write-Log {
@@ -1759,8 +1721,11 @@ try {
                 Write-Log "Signature capture error: $($_.Exception.Message)"
             }
 
-            # Build HTML body
-            $bodyHtml = [string]::Format('<html><body><p>Dear Dev Team,</p><p>{0}</p><p>{1}</p><p>Best regards,<br>{2}</p>{3}</body></html>', $description, $errorDetails, $(whoami), $signatureHtml)
+            # Build formatted HTML body
+            $bodyHtml = [string]::Format('<p><strong style="color: #CD5C5C;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: #CD5C5C;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: #CD5C5C;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
+
+            # Wrap in html/body if signature doesn't include it
+            $bodyHtml = "<html><body>$bodyHtml</body></html>"
 
             try {
                 # Create real email
@@ -2489,7 +2454,7 @@ try {
         Write-Host "Selecting DHCP server..." -ForegroundColor Cyan
         $SiteAU = Convert-VcaAu -AU $AU -Suffix ''
         $SiteDC = Get-ADComputer -Filter "Name -like '$SiteAU-dc*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'" -Properties CanonicalName, IPv4Address -ErrorAction SilentlyContinue
-        $PhoenixDC = Get-ADComputer -Filter "Name -like 'PHHOSPDHCP*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'" -Properties CanonicalName, IPv4Address -ErrorAction SilentlyContinue
+        $PhoenixDC = Get-ADComputer -Filter "Name -like '$($config.ServerNaming.DHCPServerPattern)' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'" -Properties CanonicalName, IPv4Address -ErrorAction SilentlyContinue
 
         $DhcpServers = @()
         ($SiteDC + $PhoenixDC) | ForEach-Object {
@@ -2545,6 +2510,18 @@ try {
             Write-Host "No scope selected." -ForegroundColor Red
             Write-Log "No DHCP scope selected for AU $AU"
         }
+    }
+
+    # --- FIX: Add trusted domain to Trusted Sites for SSO/MFA compatibility ---
+    try {
+        $TrustedSitesPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\Domains\$($config.InternalDomains.TrustedSitesDomain)\"
+        if (-not (Get-Item -Path $TrustedSitesPath -ErrorAction Ignore)) {
+            New-Item -Path $TrustedSitesPath -ErrorAction Stop | Out-Null
+            New-ItemProperty -Path $TrustedSitesPath -Name '*' -Value 2 -Type DWORD -ErrorAction Stop | Out-Null
+            Write-Host "Added $($config.InternalDomains.TrustedSitesDomain) to Trusted Sites for SharePoint SSO." -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "Warning: Could not update registry for Trusted Sites. SharePoint authentication may fail." -ForegroundColor Yellow
     }
 
 # Main script logic with menu, enhanced AU validation and try-catch
@@ -2947,46 +2924,31 @@ try {
                     }
                 }
                 "11" {
-                    # Update Admin Credentials
+                    # Manage Admin Credentials
                     try {
                         $credPath = "$PSScriptRoot\Private\vcaadmin.xml"         # Standardized path with uppercase 'Private'
-                        if (Test-Path $credPath) {
-                            # Load existing credentials
-                            $existingCred = Import-Clixml -Path $credPath -ErrorAction SilentlyContinue
-                            if ($existingCred) {
-                                Write-Host "Admin credentials are already saved. Current user: $($existingCred.UserName)" -ForegroundColor Green
-                                $updateChoice = Read-Host "Do you want to update them? (y/n)"
-                                if ($updateChoice.ToLower() -ne 'y') {
-                                    Write-Host "Credential update cancelled. Using existing credentials." -ForegroundColor Yellow
-                                    Write-Log "Admin credential update cancelled: User chose not to update."
+                        $TargetCreds = @('vcaadmin')
+                        $CredentialTargetsObj = $TargetCreds | foreach-object {
+                            $TargetCreds_Item = $PSItem
+                            if (Test-Path $credPath) {
+                                $existingCred = Import-Clixml -Path $credPath -ErrorAction SilentlyContinue
+                                if ($existingCred) {
+                                    $existingCred | Select-Object -Property UserName, @{n='Password';e={'********'}}, @{n='Target';e={$TargetCreds_Item}}
                                 } else {
-                                    # Prompt for new credentials (if not existing or user chose to update)
-                                    $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\marcy.admin)"
-                                   
-                                    if ($newCred) {
-                                        # Store credential using Export-Clixml
-                                        $newCred | Export-Clixml -Path $credPath -Force -ErrorAction Stop
-                                        Write-Host "Admin credentials updated and stored at $credPath." -ForegroundColor Green
-                                        Write-Log "Admin credentials updated for vcaadmin at $credPath."
-                                        # Verify the file was created
-                                        if (Test-Path $credPath) {
-                                            Write-Host "Credential file successfully verified at $credPath." -ForegroundColor Green
-                                        } else {
-                                            Write-Host "Failed to verify credential file at $credPath." -ForegroundColor Red
-                                            Write-Log "Failed to verify credential file at $credPath."
-                                        }
-
-                                    } else {
-                                        Write-Host "No credentials provided. Operation cancelled." -ForegroundColor Yellow
-                                        Write-Log "Admin credential update cancelled: No credentials provided."
-                                    }
+                                    [pscustomobject]@{Username = "No valid credentials stored"; Password = ""; Target = $TargetCreds_Item}
                                 }
                             } else {
-                               
-                                Write-Host "Existing credential file found but invalid. Re-entering..." -ForegroundColor Yellow
-                                # Prompt for new credentials (if not existing or user chose to update)
+                                [pscustomobject]@{Username = "No credentials stored"; Password = ""; Target = $TargetCreds_Item}
+                            }
+                        }
+                        @($CredentialTargetsObj) + [pscustomobject]@{Username = "----- Update Admin Credentials -----"; Password = ""; Target = ""} |
+                            Out-GridView -Title "#11 Manage Admin Credentials - Select to delete or update - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Multiple -OutVariable TargetCredsSelection | Out-Null
+
+                        if ($TargetCredsSelection) {
+                            if ($TargetCredsSelection.UserName -like "*Update Admin Credentials*") {
+                                # Prompt for new credentials
                                 $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\marcy.admin)"
-                               
+
                                 if ($newCred) {
                                     # Store credential using Export-Clixml
                                     $newCred | Export-Clixml -Path $credPath -Force -ErrorAction Stop
@@ -2999,38 +2961,23 @@ try {
                                         Write-Host "Failed to verify credential file at $credPath." -ForegroundColor Red
                                         Write-Log "Failed to verify credential file at $credPath."
                                     }
-
                                 } else {
                                     Write-Host "No credentials provided. Operation cancelled." -ForegroundColor Yellow
                                     Write-Log "Admin credential update cancelled: No credentials provided."
                                 }
-                            }
-                        }
-                        else {
-                            # No existing file, prompt for new credentials
-                            $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\marcy.admin)"
-                           
-                            if ($newCred) {
-                                # Store credential using Export-Clixml
-                                $newCred | Export-Clixml -Path $credPath -Force -ErrorAction Stop
-                                Write-Host "Admin credentials updated and stored at $credPath." -ForegroundColor Green
-                                Write-Log "Admin credentials updated for vcaadmin at $credPath."
-                                # Verify the file was created
-                                if (Test-Path $credPath) {
-                                    Write-Host "Credential file successfully verified at $credPath." -ForegroundColor Green
-                                } else {
-                                    Write-Host "Failed to verify credential file at $credPath." -ForegroundColor Red
-                                    Write-Log "Failed to verify credential file at $credPath."
-                                }
-
                             } else {
-                                Write-Host "No credentials provided. Operation cancelled." -ForegroundColor Yellow
-                                Write-Log "Admin credential update cancelled: No credentials provided."
+                                # Delete selected credentials
+                                $TargetCredsSelection | where-object { $_.Target -eq 'vcaadmin' } | foreach-object {
+                                    Write-Host "Deleting admin credentials..." -ForegroundColor Cyan
+                                    Remove-Item -Path $credPath -Force -ErrorAction SilentlyContinue
+                                    Write-Host "Admin credentials deleted." -ForegroundColor Green
+                                    Write-Log "Admin credentials deleted from $credPath."
+                                }
                             }
                         }
                     } catch {
-                        Write-Host "Error storing credentials: $($_.Exception.Message)" -ForegroundColor Red
-                        Write-Log "Error storing admin credentials: $($_.Exception.Message)"
+                        Write-Host "Error managing credentials: $($_.Exception.Message)" -ForegroundColor Red
+                        Write-Log "Error managing admin credentials: $($_.Exception.Message)"
                     }
                 }
                 "12" {

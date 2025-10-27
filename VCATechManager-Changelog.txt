@@ -2,6 +2,22 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.39 - 2025-10-27
++ CREDENTIAL MANAGEMENT ENHANCEMENT: Updated option 11 to display saved admin credentials in a grid view similar to VCAHospLauncher option 99
++ INTERACTIVE CREDENTIAL MANAGEMENT: Option 11 now shows username with masked password and provides options to delete existing credentials or update with new ones
++ IMPROVED USER EXPERIENCE: Credential management now uses Out-GridView for better visual selection and management of stored credentials
++ FUNCTION ORDER FIX: Moved Write-Status function definition earlier to prevent loading errors during config initialization
+
+v1.38 - 2025-10-27
++ SECURITY HARDENING: Moved all sensitive internal information to Private/config.json for public repository safety
++ REMOVED HARDCODED VALUES: Eliminated hardcoded domain names, DHCP servers, and file paths from main script
++ CONFIG-DRIVEN ARCHITECTURE: Script now requires Private/config.json file with organization-specific settings
++ TRUSTED SITES CONFIG: Dynamic trusted sites domain configuration using config values
++ DHCP SERVER PATTERN: Configurable DHCP server naming patterns for AD queries
++ FILE SHARE PATHS: Moved network share paths to config for secure external storage
++ FUNCTION PARAMETERIZATION: Updated private functions to use global config values instead of hardcoded strings
++ PUBLIC REPOSITORY READY: Script can now be safely shared publicly without exposing internal infrastructure details
+
 v1.37 - 2025-10-27
 + PNP POWERSHELL INTEGRATION: Replaced Invoke-WebRequest with PnP.PowerShell for modern SharePoint authentication
 + TRUSTED SITES CONFIGURATION: Automatic registry setup for vcaantech.com to enable Windows SSO/MFA compatibility

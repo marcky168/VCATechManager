@@ -7,7 +7,7 @@ function DeviceConnectivityTest {
     Write-ConditionalLog "Starting Device Connectivity Test for AU $AU"
 
     # Independent DHCP lease fetching
-    $dhcpServer = "phhospdhcp2.vcaantech.com"
+    $dhcpServer = $global:config.NetworkSettings.PrimaryDHCPServer
     $hostname = Convert-VcaAu -AU $AU -Suffix '-gw'
     try {
         $ipAddresses = [System.Net.Dns]::GetHostAddresses($hostname)
