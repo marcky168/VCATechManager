@@ -2,6 +2,13 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.27 - 2025-10-27
++ Security enhancement: Moved HOSPITALMASTER.xlsx from repository to secure local Data directory to prevent sensitive hospital data from being uploaded to GitHub
++ Removed all HOSPITALMASTER files (current and archived versions) from Git tracking and repository history
++ Updated script to load hospital master data from $PSScriptRoot\Data\HOSPITALMASTER.xlsx instead of repository
++ Added Data/README.md with setup instructions for obtaining sensitive data files from secure internal sources
++ Enhanced .gitignore to exclude Data/ directory and all HOSPITALMASTER files from future commits
+
 v1.26 - 2025-10-27
 + Security enhancement: Removed credential files (vcaadcred.xml, vcaadmin.xml) from git tracking to prevent accidental upload to GitHub
 + Fixed credential handling: Modified Get-ADSecureCredential to return null when no valid credentials found, allowing current Windows credentials as fallback
