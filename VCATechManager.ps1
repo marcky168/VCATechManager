@@ -1,7 +1,7 @@
 # Combined PowerShell Script with Menu Options
 
 # Set version
-$version = "1.27"  # Secure hospital master data handling
+$version = "1.28"  # Automatic secure download of hospital master data
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
 $host.UI.RawUI.BackgroundColor = "Black"
@@ -461,6 +461,8 @@ try {
     # Load hospital master to memory (added for hospital info display)
     if (-not $HospitalMaster) {
         $hospitalMasterPath = "$PSScriptRoot\Data\HOSPITALMASTER.xlsx"
+        $hospitalMasterUrl = 'https://vca365.sharepoint.com/sites/WOOFconnect/regions/Documents/HOSPITALMASTER.xlsx'
+
         if (Test-Path $hospitalMasterPath) {
             try {
                 $HospitalMaster = Import-Excel -Path $hospitalMasterPath -WorksheetName Misc
@@ -470,10 +472,34 @@ try {
                 Write-Log "Hospital master load error: $($_.Exception.Message)"
             }
         } else {
-            Write-Host "Hospital master file not found at $hospitalMasterPath." -ForegroundColor Yellow
-            Write-Host "Please download the HOSPITALMASTER.xlsx file from the secure internal file share and place it in the 'Data' folder." -ForegroundColor Cyan
-            Write-Host "Hospital info will not be displayed until the file is available." -ForegroundColor Yellow
-            Write-Log "Hospital master file not found at $hospitalMasterPath"
+            # Attempt automatic download for VCA employees with valid credentials
+            if ($ADCredential -and (Test-ADCredentials -Credential $ADCredential)) {
+                Write-Host "Hospital master file not found locally. Attempting secure download..." -ForegroundColor Cyan
+                try {
+                    # Ensure Data directory exists
+                    if (-not (Test-Path "$PSScriptRoot\Data")) {
+                        New-Item -ItemType Directory -Path "$PSScriptRoot\Data" -Force | Out-Null
+                    }
+
+                    # Download the file using credentials
+                    Invoke-WebRequest -Uri $hospitalMasterUrl -OutFile $hospitalMasterPath -Credential $ADCredential -UseBasicParsing
+                    Write-Host "Hospital master downloaded successfully from secure VCA server." -ForegroundColor Green
+                    Write-Log "Hospital master downloaded from $hospitalMasterUrl"
+
+                    # Load the downloaded file
+                    $HospitalMaster = Import-Excel -Path $hospitalMasterPath -WorksheetName Misc
+                    Write-Log "Hospital master loaded successfully after download"
+                } catch {
+                    Write-Host "Failed to download hospital master: $($_.Exception.Message)" -ForegroundColor Yellow
+                    Write-Host "Please download the HOSPITALMASTER.xlsx file manually from the secure internal file share and place it in the 'Data' folder." -ForegroundColor Cyan
+                    Write-Log "Hospital master download failed: $($_.Exception.Message)"
+                }
+            } else {
+                Write-Host "Hospital master file not found at $hospitalMasterPath." -ForegroundColor Yellow
+                Write-Host "Please download the HOSPITALMASTER.xlsx file from the secure internal file share and place it in the 'Data' folder." -ForegroundColor Cyan
+                Write-Host "Note: Automatic download requires valid VCA domain credentials." -ForegroundColor Gray
+                Write-Log "Hospital master file not found and no valid credentials for automatic download"
+            }
             # Don't exit - allow script to continue without hospital data
         }
     }

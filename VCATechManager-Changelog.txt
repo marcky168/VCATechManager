@@ -2,6 +2,12 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.28 - 2025-10-27
++ Enhanced hospital master data handling: Automatic secure download from internal SharePoint for VCA employees with valid domain credentials
++ Improved user experience: Authorized users get seamless setup without manual file downloads
++ Maintained security: Automatic download only works with validated VCA credentials, falls back to manual instructions for unauthorized users
++ Updated Data/README.md with automatic download information and setup instructions
+
 v1.27 - 2025-10-27
 + Security enhancement: Moved HOSPITALMASTER.xlsx from repository to secure local Data directory to prevent sensitive hospital data from being uploaded to GitHub
 + Removed all HOSPITALMASTER files (current and archived versions) from Git tracking and repository history
