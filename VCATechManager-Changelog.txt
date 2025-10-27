@@ -2,6 +2,15 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.30 - 2025-10-27
++ SHAREPOINT AUTHENTICATION MODERNIZATION: Replaced AD credential-based Hospital Master downloads with PnP.PowerShell OAuth authentication
++ Implemented interactive Office 365/SharePoint Online authentication for secure cloud file access
++ Added assembly conflict resolution for PnP.PowerShell module to prevent loading errors
++ Enhanced hospital master loading with modern authentication flow and improved error handling
++ Resolved authentication protocol mismatch between Windows AD (Kerberos/NTLM) and SharePoint Online (OAuth)
++ Maintained backward compatibility: Script works with cached tokens after initial authentication
++ Improved user experience: Clear error messages for authentication, network, and permission issues
+
 v1.29 - 2025-10-27
 + MAJOR SECURITY ENHANCEMENT: Implemented comprehensive configuration abstraction to protect internal infrastructure details
 + Added domain membership validation: Script now requires execution from VCA domain-joined machines only
