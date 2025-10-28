@@ -2,6 +2,9 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.42 - 2025-10-27
++ WORKSPACE CLEANUP: Removed redundant individual function files from Private/ folder that were consolidated in v1.25, reducing clutter and improving maintainability
+
 v1.41 - 2025-10-27
 + CONFIGURATION UPDATE: Updated Private/config.json with production values and disabled domain join requirement for broader compatibility
 + INPUT HANDLING FIX: Fixed Read-Host prompts in Abaxis MAC Address Search (option 1) to trim whitespace and handle accidental spacebar presses
