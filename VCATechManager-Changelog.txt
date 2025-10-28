@@ -2,6 +2,11 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.41 - 2025-10-27
++ CONFIGURATION UPDATE: Updated Private/config.json with production values and disabled domain join requirement for broader compatibility
++ INPUT HANDLING FIX: Fixed Read-Host prompts in Abaxis MAC Address Search (option 1) to trim whitespace and handle accidental spacebar presses
++ WORKSPACE CLEANUP: Removed unused files (full_update.txt, last_tree_sha.txt, repo_cache.json) to maintain clean repository
+
 v1.40 - 2025-10-27
 + CONFIGURATION FLEXIBILITY: Added default configuration values for testing mode when Private/config.json is missing
 + SECURE DISTRIBUTION SUPPORT: Script now runs in testing mode with placeholder values, allowing secure separate distribution of config files

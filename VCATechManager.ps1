@@ -2,7 +2,7 @@
 # --- END Trusted Site Fix ---
 
 # Set version
-$version = "1.40"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+$version = "1.41"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
 
 # Configurable Logging: Default to verbose logging enabled (moved early for config loading)
 $verboseLogging = $true
