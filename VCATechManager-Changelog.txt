@@ -2,6 +2,9 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.48 - 2025-10-28
++ REPOSITORY CLEANUP: Added VCAHospLauncher.ps1 to .gitignore and removed from repository tracking while keeping the file locally
+
 v1.47 - 2025-10-28
 + FUSE MONITORING: Added option 13c "Graphical Ping to Fuse" using gping.exe for visual ping monitoring of the hospital's Fuse device
 

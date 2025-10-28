@@ -42,3 +42,6 @@ $RECYCLE.BIN/
 *.ps1xml
 *.psd1
 *.psm1
+
+# Specific files
+VCAHospLauncher.ps1
