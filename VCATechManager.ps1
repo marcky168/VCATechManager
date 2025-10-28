@@ -2,7 +2,7 @@
 # --- END Trusted Site Fix ---
 
 # Set version
-$version = "1.44"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+$version = "1.46"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
 
 # Configurable Logging: Default to verbose logging enabled (moved early for config loading)
 $verboseLogging = $true
@@ -2756,10 +2756,12 @@ try {
             "7" = "Exit"
             "8" = "Help"
             "9" = "Toggle Verbose Logging (Current): $(if ($verboseLogging) {'On'} else {'Off'})"
-            "10" = "Robo Update"
+            "10" = "Launch Mosio"
+            "10b" = "Launch Idexx Vetconnect"
             "11" = "Update Admin Credentials"
             "12" = "Device Connectivity Test"
-            "13" = "Launch ServiceNow for AU Tickets"
+            "13" = "Launch ServiceNow for AU All Tickets"
+            "13b" = "Launch ServiceNow for AU Open Tickets"
             "14" = "AD User Management"
             "14u" = "Update Hospital Master"
             "15" = "Launch vSphere for Fuse VM"
@@ -2917,10 +2919,12 @@ try {
                     Write-Host "5. List AD Users and Check Logon: Lists AD users in hospital group and checks logon for selected." -ForegroundColor White
                     Write-Host "6. Kill Sparky Shell: Kills VCA.Sparky.Shell process for selected logged-in user." -ForegroundColor White
                     Write-Host "9. Toggle Verbose Logging: Enables/disables logging of actions to file." -ForegroundColor White
-                    Write-Host "10. Robo Update: Updates script using RoboCopy from network path." -ForegroundColor White
+                    Write-Host "10. Launch Mosio" -ForegroundColor White
+                    Write-Host "10b. Launch Idexx Vetconnect" -ForegroundColor White
                     Write-Host "11. Update Admin Credentials: Update stored admin credentials." -ForegroundColor White
                     Write-Host "12. Device Connectivity Test: Test connectivity to devices from DHCP." -ForegroundColor White
-                    Write-Host "13. Launch ServiceNow for AU Tickets" -ForegroundColor White
+                    Write-Host "13. Launch ServiceNow for AU All Tickets" -ForegroundColor White
+                    Write-Host "13b. Launch ServiceNow for AU Open Tickets" -ForegroundColor White
                     Write-Host "14. AD User Management: Reset password/unlock account for users." -ForegroundColor White
                     Write-Host "14u. Update Hospital Master: Check and download latest HOSPITALMASTER.xlsx from SharePoint." -ForegroundColor White
                     Write-Host "15. Launch vSphere for Fuse VM: Opens vSphere URL for Fuse VM based on hospital location (East/Central or West)." -ForegroundColor White
@@ -2934,16 +2938,14 @@ try {
                
                 }
                 "10" {
-                    # Robo Update
-                    $updateSourcePath = "\\network\path\to\updates"  # Customize
-                    $confirm = Read-Host "Confirm updating script from $updateSourcePath? (y/n)"
-                    if ($confirm.ToLower() -eq 'y') {
-                        RoboCopy $updateSourcePath $PSScriptRoot * /E /PURGE /R:3 /W:5
-                        Write-Host "Update complete. Restarting script..." -ForegroundColor Green
-                        & $scriptPath
-                        $menuActive = $false
-                        $exitScript = $true
-                    }
+                    # Launch Mosio
+                    Start-Process "https://biz.mosio.com/login"
+                    Write-Host "Opening Mosio login page." -ForegroundColor Green
+                }
+                "10b" {
+                    # Launch Idexx Vetconnect
+                    Start-Process "https://www.vetconnectplus.com/login?returnUrl=%2Fhome"
+                    Write-Host "Opening Idexx Vetconnect login page." -ForegroundColor Green
                 }
                 "11" {
                     # Manage Admin Credentials
@@ -3007,10 +3009,16 @@ try {
                     DeviceConnectivityTest -AU $AU
                 }
                 "13" {
-                    # Launch ServiceNow for AU Tickets
+                    # Launch ServiceNow for AU All Tickets
                     $snUrl = "https://marsvh.service-now.com/now/nav/ui/classic/params/target/incident_list.do?sysparm_query=u_departmentLIKE$AU%20-&sysparm_first_row=1&sysparm_view="
                     Start-Process $snUrl
-                    Write-Host "Opening ServiceNow for AU $AU tickets." -ForegroundColor Green
+                    Write-Host "Opening ServiceNow for AU $AU all tickets." -ForegroundColor Green
+                }
+                "13b" {
+                    # Launch ServiceNow for AU Open Tickets
+                    $snUrl = "https://marsvh.service-now.com/now/nav/ui/classic/params/target/incident_list.do?sysparm_query=u_departmentLIKE$AU%20-^incident_state!=7^ORincident_state=NULL&sysparm_first_row=1&sysparm_view="
+                    Start-Process $snUrl
+                    Write-Host "Opening ServiceNow for AU $AU open tickets." -ForegroundColor Green
                 }
                 "14" {
                     # AD User Management
