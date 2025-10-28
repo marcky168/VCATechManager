@@ -887,8 +887,8 @@ try {
 
         # Ping other leased devices (excluding Fuse)
         $otherDevices = $groupResults | Where-Object { $_.ClientId -notmatch '^00-90-FB|^00-50-56|^00-0C-29' }
-        $runPingTest = Read-Host "Run ping test on other leased devices? (y/n)"
-        if ($runPingTest.ToLower() -eq 'y') {
+        $runPingTest = (Read-Host "Run ping test on other leased devices? (y/n)").Trim().ToLower()
+        if ($runPingTest -eq 'y') {
             Write-Host "Testing connectivity to $($otherDevices.Count) devices (parallel processing)..." -ForegroundColor Green
             $pingJobs = @()
             foreach ($device in $otherDevices) {
@@ -966,16 +966,16 @@ try {
                 Write-Host "Fuse device did not respond to ping." -ForegroundColor Red
             }
             # Prompt to open Fuse webpage regardless of ping status
-            $openFuse = Read-Host "Do you want to open the Fuse webpage? (y/n)"
-            if ($openFuse.ToLower() -eq 'y') {
+            $openFuse = (Read-Host "Do you want to open the Fuse webpage? (y/n)").Trim().ToLower()
+            if ($openFuse -eq 'y') {
                 $fuseUrl = "https://${fuseHostname}:8443"
                 Start-Process "msedge" -ArgumentList $fuseUrl
                 Write-Host "Opening Fuse webpage: $fuseUrl" -ForegroundColor Green
             }
             # Offer vSphere reboot if not responding and virtual
             if (-not $pingResult -and $fuseIp -like "10.242*") {
-                $openVSphere = Read-Host "Fuse IP starts with 10.242 and is not responding. Open vSphere to reboot Fuse? (y/n)"
-                if ($openVSphere.ToLower() -eq 'y') {
+                $openVSphere = (Read-Host "Fuse IP starts with 10.242 and is not responding. Open vSphere to reboot Fuse? (y/n)").Trim().ToLower()
+                if ($openVSphere -eq 'y') {
                     if ($HospitalInfo -and $HospitalInfo.'Time Zone') {
                         $timeZone = $HospitalInfo.'Time Zone'
                         if ($timeZone -in @("America/New_York", "America/Chicago", "America/Detroit", "America/Toronto")) {
