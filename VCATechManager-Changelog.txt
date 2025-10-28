@@ -2,6 +2,9 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.43 - 2025-10-28
++ CODE CLEANUP: Removed duplicate function files from Private/ folder (DeviceConnectivityTest.ps1, ADUserManagement.ps1, ListADUsersAndCheckLogon.ps1) that were already consolidated in grouped files
+
 v1.42 - 2025-10-27
 + WORKSPACE CLEANUP: Removed redundant individual function files from Private/ folder that were consolidated in v1.25, reducing clutter and improving maintainability
 
