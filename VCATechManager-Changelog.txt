@@ -2,6 +2,9 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.44 - 2025-10-28
++ SERVICENOW INTEGRATION UPDATE: Modified option 13 URL to filter tickets with "AU -" format (e.g., "1348 -") for better hospital ticket matching
+
 v1.43 - 2025-10-28
 + CODE CLEANUP: Removed duplicate function files from Private/ folder (DeviceConnectivityTest.ps1, ADUserManagement.ps1, ListADUsersAndCheckLogon.ps1) that were already consolidated in grouped files
 

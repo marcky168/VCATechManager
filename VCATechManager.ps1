@@ -2,7 +2,7 @@
 # --- END Trusted Site Fix ---
 
 # Set version
-$version = "1.43"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+$version = "1.44"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
 
 # Configurable Logging: Default to verbose logging enabled (moved early for config loading)
 $verboseLogging = $true
@@ -3008,7 +3008,7 @@ try {
                 }
                 "13" {
                     # Launch ServiceNow for AU Tickets
-                    $snUrl = "https://marsvh.service-now.com/now/nav/ui/classic/params/target/incident_list.do?sysparm_query=u_departmentLIKE$AU&sysparm_first_row=1&sysparm_view="
+                    $snUrl = "https://marsvh.service-now.com/now/nav/ui/classic/params/target/incident_list.do?sysparm_query=u_departmentLIKE$AU%20-&sysparm_first_row=1&sysparm_view="
                     Start-Process $snUrl
                     Write-Host "Opening ServiceNow for AU $AU tickets." -ForegroundColor Green
                 }
