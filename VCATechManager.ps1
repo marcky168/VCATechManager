@@ -2,7 +2,7 @@
 # --- END Trusted Site Fix ---
 
 # Set version
-$version = "1.46"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+$version = "1.47"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
 
 # Configurable Logging: Default to verbose logging enabled (moved early for config loading)
 $verboseLogging = $true
@@ -2761,6 +2761,7 @@ try {
             "11" = "Update Admin Credentials"
             "12" = "Device Connectivity Test"
             "13" = "Launch ServiceNow for AU All Tickets"
+            "12b" = "Graphical Ping to Fuse"
             "13b" = "Launch ServiceNow for AU Open Tickets"
             "14" = "AD User Management"
             "14u" = "Update Hospital Master"
@@ -2923,6 +2924,7 @@ try {
                     Write-Host "10b. Launch Idexx Vetconnect" -ForegroundColor White
                     Write-Host "11. Update Admin Credentials: Update stored admin credentials." -ForegroundColor White
                     Write-Host "12. Device Connectivity Test: Test connectivity to devices from DHCP." -ForegroundColor White
+                    Write-Host "12b. Graphical Ping to Fuse" -ForegroundColor White
                     Write-Host "13. Launch ServiceNow for AU All Tickets" -ForegroundColor White
                     Write-Host "13b. Launch ServiceNow for AU Open Tickets" -ForegroundColor White
                     Write-Host "14. AD User Management: Reset password/unlock account for users." -ForegroundColor White
@@ -3013,6 +3015,27 @@ try {
                     $snUrl = "https://marsvh.service-now.com/now/nav/ui/classic/params/target/incident_list.do?sysparm_query=u_departmentLIKE$AU%20-&sysparm_first_row=1&sysparm_view="
                     Start-Process $snUrl
                     Write-Host "Opening ServiceNow for AU $AU all tickets." -ForegroundColor Green
+                }
+                "12b" {
+                    # Graphical Ping to Fuse
+                    $fuseHostname = Convert-VcaAu -AU $AU -Suffix '-fuse'
+                    try {
+                        $fuseIPs = [System.Net.Dns]::GetHostAddresses($fuseHostname)
+                        if ($fuseIPs) {
+                            $fuseIP = $fuseIPs[0].IPAddressToString
+                            $gpingPath = "$PSScriptRoot\Private\bin\gping.exe"
+                            if (Test-Path $gpingPath) {
+                                Start-Process $gpingPath -ArgumentList $fuseIP
+                                Write-Host "Launching graphical ping to Fuse at $fuseIP." -ForegroundColor Green
+                            } else {
+                                Write-Host "gping.exe not found in bin folder." -ForegroundColor Red
+                            }
+                        } else {
+                            Write-Host "Could not resolve IP for $fuseHostname." -ForegroundColor Red
+                        }
+                    } catch {
+                        Write-Host "Error resolving Fuse hostname: $($_.Exception.Message)" -ForegroundColor Red
+                    }
                 }
                 "13b" {
                     # Launch ServiceNow for AU Open Tickets
