@@ -7,6 +7,7 @@ v1.53 - 2025-10-29
 + DHCP DISCOVERY FIX: Added config loading code at script startup to resolve DHCP server discovery failures in options 1, 12, and 16 caused by uninitialized $config variable
 + MENU CLARIFICATION: Renamed option 12 from "Device Connectivity Test" to "Search for Heska devices" for better clarity
 + FUSE MONITORING UPDATE: Changed option 12b from using gping.exe to pinginfoviewer.exe for Fuse device monitoring
++ SECURITY ENHANCEMENT: Removed Private/csv/ folder from repository tracking while keeping files locally to prevent sensitive telecom and hospital circuit data from being uploaded to GitHub
 
 v1.52 - 2025-10-28
 + SERVICENOW REMOVAL: Removed option 13c "Create ServiceNow Incident" due to unavailable API credentials; ServiceNow viewing options (13 and 13b) remain functional
