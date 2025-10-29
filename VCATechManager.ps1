@@ -5,68 +5,121 @@
 $version = "1.52"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
 
 # Configurable Logging: Default to verbose logging enabled (moved early for config loading)
-$verboseLogging = $true
+                "12b" {
+                    # Graphical Ping to Fuse (use host-list like VCAHospLauncher #13)
+                    try {
+                        # Prefer the richer site-hostname list if helper is available
+                        if (Get-Command -Name Get-VcaSiteHostname -ErrorAction SilentlyContinue) {
+                            $siteHostnames = Get-VcaSiteHostname -ComputerName $AU -Cluster $Cluster -ClusterSite $ClusterSite -NetServices $NetServices
+                        }
+                        else {
+                            # Fallback to only the fuse hostname
+                            $siteHostnames = @(Convert-VcaAu -AU $AU -Suffix '-fuse')
+                        }
 
-# New: Logging toggle and path (create early for initial errors)
-$logPath = "$PSScriptRoot\logs\VCATechManager_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-if (-not (Test-Path "$PSScriptRoot\logs")) { New-Item -Path "$PSScriptRoot\logs" -ItemType Directory -Force | Out-Null }
-# Create log file early to ensure it exists
-New-Item -Path $logPath -ItemType File -Force | Out-Null
+                        if (-not $siteHostnames) { throw 'No hostnames determined for this AU.' }
 
-# Helper function for centralized Write-Host customization (moved early for config loading)
-function Write-Status ($Message, $Color = "White") {
-    Write-Host $Message -ForegroundColor $Color
-}
+                        $binDir = Join-Path $PSScriptRoot 'Private\bin'
+                        if (-not (Test-Path $binDir)) { New-Item -Path $binDir -ItemType Directory -Force | Out-Null }
 
-# Helper functions moved outside try block for reliability (moved early for config loading)
-function Write-Log {
-    param([string]$Message)
-    Add-Content -Path $logPath -Value "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")] $Message"
-}
+                        # Ensure PingInfoView is installed (same download/extract fallback)
+                        $pingInfoPath = Join-Path $binDir 'PingInfoView.exe'
+                        if (-not (Test-Path $pingInfoPath)) {
+                            Write-Host "PingInfoView.exe not found in bin folder. Attempting to download and install it..." -ForegroundColor Yellow
+                            try {
+                                $zipUrl = 'https://www.nirsoft.net/utils/pinginfoview.zip'
+                                $zipPath = Join-Path $env:TEMP 'pinginfoview.zip'
+                                if (Test-Path $zipPath) { Remove-Item $zipPath -Force -ErrorAction SilentlyContinue }
 
-# Function to provide default configuration values for testing
-function Get-DefaultConfig {
-    return @{
-        InternalDomains = @{
-            PrimaryDomain = "example.local"
-            TrustedSitesDomain = "example.com"
-        }
-        SecuritySettings = @{
-            RequireDomainJoin = $false
-            CredentialCacheMinutes = 10
-        }
-        NetworkSettings = @{
-            PrimaryDHCPServer = "dhcp.example.local"
-            DHCPServers = @("dhcp1.example.local", "dhcp2.example.local")
-        }
-        ServerNaming = @{
-            DHCPServerPattern = "dhcp*"
-        }
-        FilePaths = @{
-            HospitalMasterPath = "/sites/example/regions/Documents/HOSPITALMASTER.xlsx"
-            SharePointBaseUrl = "https://example.sharepoint.com"
-        }
-    }
-}
+                                Write-Host "Downloading PingInfoView from $zipUrl..." -ForegroundColor Cyan
+                                Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -ErrorAction Stop
 
-# Load configuration file
-$configPath = "$PSScriptRoot\Private\config.json"
-$config = $null
-if (Test-Path $configPath) {
-    try {
-        $config = Get-Content $configPath -Raw | ConvertFrom-Json
-        Write-Status "Configuration loaded successfully" Green
-    } catch {
-        Write-Status "Warning: Could not load configuration file. Using default values." Yellow
-        Write-Log "Config load error: $($_.Exception.Message)"
-        $config = Get-DefaultConfig
-    }
-} else {
-    Write-Status "Warning: Configuration file not found. Using default values for testing." Yellow
-    Write-Status "SECURITY NOTICE: Default values are for testing only. Create Private/config.json for secure production use." Red
-    Write-Log "Config file not found at $configPath - using defaults"
-    $config = Get-DefaultConfig
-}
+                                Write-Host "Extracting PingInfoView to $binDir..." -ForegroundColor Cyan
+                                try {
+                                    if (Get-Command -Name Expand-Archive -ErrorAction SilentlyContinue) {
+                                        Expand-Archive -LiteralPath $zipPath -DestinationPath $binDir -Force
+                                    } else {
+                                        Add-Type -AssemblyName System.IO.Compression.FileSystem
+                                        [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $binDir)
+                                    }
+                                } catch {
+                                    Write-Host "Extraction failed: $($_.Exception.Message)" -ForegroundColor Red
+                                    throw
+                                }
+
+                                Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+                            } catch {
+                                Write-Host "Failed to download or install PingInfoView: $($_.Exception.Message)" -ForegroundColor Red
+                                Write-Host "You can manually download PingInfoView from https://www.nirsoft.net/utils/pinginfoview.html and place PingInfoView.exe into Private\\bin." -ForegroundColor Yellow
+                            }
+                        }
+
+                        if (-not (Test-Path $pingInfoPath)) { throw 'PingInfoView.exe not available.' }
+
+                        # Verify each hostname resolves and highlight unresolved hosts
+                        $resolved = @()
+                        $unresolved = @()
+                        foreach ($h in $siteHostnames) {
+                            try {
+                                $ips = [System.Net.Dns]::GetHostAddresses($h) | ForEach-Object { $_.IPAddressToString }
+                                if ($ips) { $resolved += $h } else { $unresolved += $h }
+                            } catch {
+                                $unresolved += $h
+                            }
+                        }
+                        if ($unresolved) {
+                            Write-Host "Warning: The following hostnames could not be resolved: $($unresolved -join ', ')" -ForegroundColor Yellow
+                        }
+
+                        # Create Servers.txt with the full host list (one per line) like VCAHospLauncher
+                        $serversFile = Join-Path $binDir 'Servers.txt'
+                        $siteHostnames | Out-File -FilePath $serversFile -Encoding ASCII -Force
+
+                        # Compute connection/title info (try VPN client first, else local IP)
+                        try {
+                            if (Test-Path -Path "C:\Program Files (x86)\Cisco\Cisco AnyConnect Secure Mobility Client\vpncli.exe") {
+                                $vpn_stats = New-Object PSObject; &"C:\Program Files (x86)\Cisco\Cisco AnyConnect Secure Mobility Client\vpncli.exe" stats |
+                                    Where-Object {(($_ -match ':') -and ($_ -notlike "*>>*"))} |
+                                    ForEach-Object {$Item = ($_.Trim() -split ': ').trim(); $vpn_stats | Add-Member -MemberType NoteProperty -Name $($Item[0]) -Value $Item[1] -ErrorAction SilentlyContinue }
+                                if ($vpn_stats.'Connection State' -eq 'Connected') {
+                                    $ConnectionInfo = "- [Source IP: $($vpn_stats.'Client Address (IPv4)') via ($([System.Net.Dns]::GetHostEntry($vpn_stats.'Server Address').HostName) - $($vpn_stats.'Connection State'))]"
+                                }
+                            }
+                        } catch {
+                            # fallback to local ip
+                        }
+                        if (-not $ConnectionInfo) {
+                            $localIps = (Get-NetIPConfiguration).IPv4Address.IPAddress | Where-Object { $_ -notmatch "^192\.|^169\." }
+                            $ConnectionInfo = $localIps | ForEach-Object { "- [Source IP: $_ ($([System.Net.Dns]::GetHostEntry($_).HostName))]" } | Select-Object -First 1
+                        }
+
+                        # Launch PingInfoView loading the file so the GUI shows the ordered host list
+                        $proc = Start-Process -FilePath $pingInfoPath -ArgumentList "/loadfile Servers.txt /PingEvery 1 /PingEverySeconds 5" -WorkingDirectory $binDir -PassThru
+                        Start-Sleep -Milliseconds 500
+
+                        try {
+                            $p = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
+                            if ($p -and $p.MainWindowHandle) {
+                                if ($siteHostnames.count -gt 1) {
+                                    $auDisplay = Convert-VcaAU -AU (@($siteHostnames[0])) -Prefix AU -Suffix '' -NoLeadingZeros
+                                } else {
+                                    $auDisplay = $siteHostnames[0]
+                                }
+                                [PInvoke.User]::SetWindowText($p.MainWindowHandle, "$($p.MainWindowTitle) - VCA Ops Portal v.$version - $auDisplay $ConnectionInfo") | Out-Null
+                            }
+                        } catch {
+                            # Non-fatal if title change fails
+                        }
+
+                        Write-Host "Launching PingInfoView for AU $AU (hosts: $($siteHostnames -join ', '))." -ForegroundColor Green
+
+                        # Clear Servers.txt contents immediately so no sensitive host list remains
+                        try { Set-Content -Path $serversFile -Value '' -Encoding ASCII -Force } catch { }
+
+                    } catch {
+                        Write-Host "Could not launch PingInfoView for AU $AU: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
 
 # Security check: Verify domain membership if required
 if ($config.SecuritySettings.RequireDomainJoin) {
@@ -287,6 +340,12 @@ function Start-VNCViewer {
         return $false
     }
 }
+
+# PInvoke helper for renaming external process titlebars (used for PingInfoView)
+Add-Type -Namespace PInvoke -Name User -MemberDefinition @"
+[DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+public static extern bool SetWindowText(IntPtr hwnd, String lpString);
+"@ -ErrorAction SilentlyContinue
 
 filter Get-PingStatus {
     try {
@@ -1223,6 +1282,8 @@ try {
                 if ($cc) { $mail.CC = $cc }
                 $mail.Subject = $subject
                 $mail.HTMLBody = $bodyHtml  # Set body with embedded signature images
+                # Set importance to High (2)
+                $mail.Importance = 2
 
                 # Optional: Attach the exported CSV if it was created
                 # $exportPath = "$PSScriptRoot\reports\${AU}_woofware_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
@@ -1512,6 +1573,8 @@ try {
                 if ($cc) { $mail.CC = $cc }
                 $mail.Subject = $subject
                 $mail.HTMLBody = $bodyHtml  # Set body with embedded signature images
+                # Set importance to High (2)
+                $mail.Importance = 2
 
                 # Optional: Attach the exported CSV if it was created
                 # $exportPath = "$PSScriptRoot\reports\${AU}_woofware_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
@@ -3018,24 +3081,65 @@ try {
                     Write-Host "Opening ServiceNow for AU $AU all tickets." -ForegroundColor Green
                 }
                 "12b" {
-                    # Graphical Ping to Fuse
-                    $fuseHostname = Convert-VcaAu -AU $AU -Suffix '-fuse'
+                    # Graphical Ping to Fuse (use host-list like VCAHospLauncher #13)
                     try {
-                        $fuseIPs = [System.Net.Dns]::GetHostAddresses($fuseHostname)
-                        if ($fuseIPs) {
-                            $fuseIP = $fuseIPs[0].IPAddressToString
-                            $gpingPath = "$PSScriptRoot\Private\bin\gping.exe"
-                            if (Test-Path $gpingPath) {
-                                Start-Process $gpingPath -ArgumentList $fuseIP
-                                Write-Host "Launching graphical ping to Fuse at $fuseIP." -ForegroundColor Green
-                            } else {
-                                Write-Host "gping.exe not found in bin folder." -ForegroundColor Red
-                            }
-                        } else {
-                            Write-Host "Could not resolve IP for $fuseHostname." -ForegroundColor Red
+                        # Prefer the richer site-hostname list if helper is available
+                        if (Get-Command -Name Get-VcaSiteHostname -ErrorAction SilentlyContinue) {
+                            $siteHostnames = Get-VcaSiteHostname -ComputerName $AU -Cluster $Cluster -ClusterSite $ClusterSite -NetServices $NetServices
                         }
+                        else {
+                            # Fallback to only the fuse hostname
+                            $siteHostnames = @(Convert-VcaAu -AU $AU -Suffix '-fuse')
+                        }
+
+                        if (-not $siteHostnames) { throw 'No hostnames determined for this AU.' }
+
+                        $binDir = Join-Path $PSScriptRoot 'Private\bin'
+                        if (-not (Test-Path $binDir)) { New-Item -Path $binDir -ItemType Directory -Force | Out-Null }
+
+                        # Ensure PingInfoView is installed (same download/extract fallback)
+                        $pingInfoPath = Join-Path $binDir 'PingInfoView.exe'
+                        if (-not (Test-Path $pingInfoPath)) {
+                            Write-Host "PingInfoView.exe not found in bin folder. Attempting to download and install it..." -ForegroundColor Yellow
+                            try {
+                                $zipUrl = 'https://www.nirsoft.net/utils/pinginfoview.zip'
+                                $zipPath = Join-Path $env:TEMP 'pinginfoview.zip'
+                                if (Test-Path $zipPath) { Remove-Item $zipPath -Force -ErrorAction SilentlyContinue }
+
+                                Write-Host "Downloading PingInfoView from $zipUrl..." -ForegroundColor Cyan
+                                Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -ErrorAction Stop
+
+                                Write-Host "Extracting PingInfoView to $binDir..." -ForegroundColor Cyan
+                                try {
+                                    if (Get-Command -Name Expand-Archive -ErrorAction SilentlyContinue) {
+                                        Expand-Archive -LiteralPath $zipPath -DestinationPath $binDir -Force
+                                    } else {
+                                        Add-Type -AssemblyName System.IO.Compression.FileSystem
+                                        [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $binDir)
+                                    }
+                                } catch {
+                                    Write-Host "Extraction failed: $($_.Exception.Message)" -ForegroundColor Red
+                                    throw
+                                }
+
+                                Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+                            } catch {
+                                Write-Host "Failed to download or install PingInfoView: $($_.Exception.Message)" -ForegroundColor Red
+                                Write-Host "You can manually download PingInfoView from https://www.nirsoft.net/utils/pinginfoview.html and place PingInfoView.exe into Private\\bin." -ForegroundColor Yellow
+                            }
+                        }
+
+                        if (-not (Test-Path $pingInfoPath)) { throw 'PingInfoView.exe not available.' }
+
+                        # Create Servers.txt with the full host list (one per line) like VCAHospLauncher
+                        $serversFile = Join-Path $binDir 'Servers.txt'
+                        $siteHostnames | Out-File -FilePath $serversFile -Encoding ASCII -Force
+
+                        # Launch PingInfoView loading the file so the GUI shows the ordered host list
+                        Start-Process -FilePath $pingInfoPath -ArgumentList "/loadfile Servers.txt /PingEvery 1 /PingEverySeconds 5" -WorkingDirectory $binDir
+                        Write-Host "Launching PingInfoView for AU $AU (hosts: $($siteHostnames -join ', '))." -ForegroundColor Green
                     } catch {
-                        Write-Host "Error resolving Fuse hostname: $($_.Exception.Message)" -ForegroundColor Red
+                        Write-Host "Could not launch PingInfoView for AU $AU : $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
                 "13b" {

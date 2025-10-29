@@ -45,3 +45,4 @@ $RECYCLE.BIN/
 
 # Specific files
 VCAHospLauncher.ps1
+Private/bin/Servers.txt
