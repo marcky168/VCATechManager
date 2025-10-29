@@ -10,7 +10,8 @@ Private/github_pat.txt
 
 # Ignore sensitive data files
 Private/csv/
-Private/csv/HOSPITALMASTER.xlsx
+Private/*/csv/
+Private/HOSPITALMASTER.xlsx
 Private/csv/archive/
 Data/
 
