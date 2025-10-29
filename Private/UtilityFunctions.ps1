@@ -195,24 +195,127 @@ function Copy-ToPSSession {
 }
 
 function Kill-SparkyShell {
-    param (
-        [Parameter(Mandatory = $true)]
-        [string]$AU
-    )
-
+    param([string]$AU)
+    Write-Log "Starting Kill Sparky Shell for AU $AU"
     try {
-        # Query and stop the SparkyShell process (adjust process name if needed)
-        $processes = Get-Process -Name "SparkyShell" -ErrorAction SilentlyContinue
-        if ($processes) {
-            $processes | Stop-Process -Force
-            Write-Log "Successfully killed SparkyShell processes for AU $AU."
+        $servers = Get-CachedServers -AU $AU
+        if (-not $servers) {
+            Write-Host "No servers found for AU $AU." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host "Searching for Sparky processes and files on $($servers.Count) servers..." -ForegroundColor Cyan
+        $results = Invoke-Command -ComputerName $servers -ScriptBlock {
+            $processes = Get-Process | Where-Object { $_.Name -like "*Sparky*" } -ErrorAction SilentlyContinue
+            $results = @()
+            foreach ($process in $processes) {
+                try {
+                    $owner = (Get-WmiObject -Class Win32_Process -Filter "ProcessId = $($process.Id)").GetOwner()
+                    $userName = $owner.User
+                } catch {
+                    $userName = "Unknown"
+                }
+                $results += [PSCustomObject]@{
+                    Server    = $env:COMPUTERNAME
+                    ProcessId = $process.Id
+                    ProcessName = $process.Name
+                    UserName  = $userName
+                    StartTime = $process.StartTime
+                }
+            }
+            # Search for Sparky files in common locations (limited recursion for performance)
+            $files = Get-ChildItem -Path "C:\Program Files", "C:\Program Files (x86)", "C:\" -Filter "*Sparky*" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object FullName
+            [PSCustomObject]@{
+                SparkyResults = $results
+                SparkyFiles = $files
+            }
+        } -ErrorAction SilentlyContinue
+
+        $processResults = $results | ForEach-Object { $_.SparkyResults } | Where-Object { $_ }
+        $sparkyFiles = $results | ForEach-Object { $_.SparkyFiles } | Where-Object { $_ }
+
+        if ($processResults) {
+            $selected = $processResults | Out-GridView -Title "Select Sparky process to kill for AU $AU" -OutputMode Single
+            if ($selected) {
+                Write-Host "Attempting to kill $($selected.ProcessName) (PID: $($selected.ProcessId)) on $($selected.Server) for user $($selected.UserName)..." -ForegroundColor Yellow
+                Invoke-Command -ComputerName $selected.Server -ScriptBlock {
+                    param($processId)
+                    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+                } -ArgumentList $selected.ProcessId -ErrorAction Stop
+                Write-Host "Killed $($selected.ProcessName) process on $($selected.Server)." -ForegroundColor Green
+                Write-Log "Killed $($selected.ProcessName) process ID $($selected.ProcessId) on $($selected.Server) for user $($selected.UserName)"
+            } else {
+                Write-Host "No process selected." -ForegroundColor Yellow
+            }
         } else {
-            Write-Log "No SparkyShell processes found for AU $AU."
+            Write-Host "No processes with 'Sparky' in the name found on any server for AU $AU." -ForegroundColor Yellow
+            if ($sparkyFiles) {
+                Write-Host "Found Sparky-related files on servers (for debugging):" -ForegroundColor Cyan
+                $sparkyFiles | Format-Table -AutoSize
+            } else {
+                Write-Host "No Sparky-related files found in common locations on servers." -ForegroundColor Yellow
+            }
         }
     } catch {
         Write-Host "Error in Kill-SparkyShell: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Log "Error killing SparkyShell for AU $($AU): $($_.Exception.Message)"
-        throw
+        Write-Log "Error in Kill-SparkyShell: $($_.Exception.Message)"
+    }
+}
+
+# Function to update hospital master (moved from main script)
+function Update-HospitalMaster {
+    param(
+        [string]$SharePointBaseUrl = 'https://vca365.sharepoint.com/sites/WOOFconnect/regions',
+        [string]$HospitalMasterPath = '/Documents/HOSPITALMASTER.xlsx',
+        [string]$DestinationPath = "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx",
+        [System.Management.Automation.PSCredential]$ExistingCredential,
+        [string]$CredPathSPO
+    )
+
+    $CsvPath = "$PSScriptRoot\Private\csv"
+    $HospitalMasterXlsx = "$CsvPath\HOSPITALMASTER.xlsx"
+    $HospitalMasterXlsxNew = "$CsvPath\HOSPITALMASTER_new.xlsx"
+
+    if (-not (Test-Path -Path $CsvPath)) {
+        New-Item -ItemType Directory -Path $CsvPath | Out-Null
+    }
+
+    try {
+        Write-Status "Connecting to SharePoint Online..." Cyan
+        Connect-PnPOnline -Url $SharePointBaseUrl -UseWebLogin -ErrorAction Stop -WarningAction Ignore
+        $host.UI.RawUI.BackgroundColor = "Black"
+        $host.UI.RawUI.ForegroundColor = "White"
+
+        Write-Status "Downloading HOSPITALMASTER.xlsx..." Cyan
+        Get-PnPFile -Url $HospitalMasterPath -Path $CsvPath -Filename 'HOSPITALMASTER_new.xlsx' -AsFile -Force -ErrorAction Stop
+
+        if (Test-Path -Path $HospitalMasterXlsx) {
+            $CurrentHash = Get-FileHash -Path $HospitalMasterXlsx -Algorithm SHA256
+            $NewHash = Get-FileHash -Path $HospitalMasterXlsxNew -Algorithm SHA256
+            if ($CurrentHash.Hash -ne $NewHash.Hash) {
+                Write-Status "New version of hospital master found... updating" Green
+                Move-Item -Path $HospitalMasterXlsxNew -Destination $HospitalMasterXlsx -Force
+                Write-Status "Hospital Master successfully updated" Green
+            } else {
+                $HospitalFileDate = '{0:M/dd/yyyy h:mm tt}' -f (Get-Item -Path $HospitalMasterXlsx | Select-Object -ExpandProperty LastWriteTime)
+                Write-Status "Hospital master XLSX is already up-to-date (Last Write Time: $HospitalFileDate)" Cyan
+                Remove-Item -Path $HospitalMasterXlsxNew
+            }
+        } else {
+            Write-Status "Hospital master XLSX downloaded successfully" Green
+            Move-Item -Path $HospitalMasterXlsxNew -Destination $HospitalMasterXlsx -Force
+        }
+
+        return $true
+    } catch {
+        $errorMessage = $_.Exception.Message
+        Write-Status "Download failed: $($errorMessage)" Red
+        if (Test-Path -Path $HospitalMasterXlsxNew) { Remove-Item -Path $HospitalMasterXlsxNew -Force }
+        if (Test-Path -Path $HospitalMasterXlsx) {
+            $HospitalFileDate = '{0:M/dd/yyyy h:mm tt}' -f (Get-Item -Path $HospitalMasterXlsx | Select-Object -ExpandProperty LastWriteTime)
+            Write-Status "Using existing local hospital master XLSX (Last Write Time: $HospitalFileDate)" Yellow
+        }
+        return $false
     }
 }
 

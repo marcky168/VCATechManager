@@ -2,143 +2,123 @@
 # --- END Trusted Site Fix ---
 
 # Set version
-$version = "1.52"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+$version = "1.53"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+
+# Load configuration from JSON file
+$configPath = "$PSScriptRoot\Private\config.json"
+if (Test-Path $configPath) {
+    try {
+        $config = Get-Content -Path $configPath -Raw | ConvertFrom-Json
+        Write-Host "Configuration loaded successfully from $configPath." -ForegroundColor Green
+    } catch {
+        Write-Host "Failed to load configuration from $configPath : $($_.Exception.Message). Using default values." -ForegroundColor Yellow
+        $config = $null
+    }
+} else {
+    Write-Host "Configuration file not found at $configPath. Using default values." -ForegroundColor Yellow
+    $config = $null
+}
+
+# Start a transcript early so we capture runtime errors/messages even if the window closes quickly
+$transcriptPath = "$env:TEMP\VCATechManager_transcript_$(Get-Date -Format yyyyMMdd_HHmmss).txt"
+try {
+    if (-not (Get-PSHostProcessInfo -ErrorAction SilentlyContinue)) {
+        # Best-effort Start-Transcript for PS5.1
+        Start-Transcript -Path $transcriptPath -ErrorAction SilentlyContinue | Out-Null
+    } else {
+        Start-Transcript -Path $transcriptPath -ErrorAction SilentlyContinue | Out-Null
+    }
+} catch {
+    # If Start-Transcript isn't available or fails, continue without it
+}
+
+# Ensure a writable log path exists early so fallback logging works during load
+$logDir = Join-Path $PSScriptRoot 'logs'
+if (-not (Test-Path $logDir)) {
+    try { New-Item -Path $logDir -ItemType Directory -Force | Out-Null } catch {}
+}
+$logPath = Join-Path $logDir ("VCATechManager_log_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+
+# Provide minimal fallback logging and status functions in case the module that defines them fails to load
+if (-not (Get-Command -Name Write-Log -ErrorAction SilentlyContinue)) {
+    function Write-Log {
+        param([Parameter(Mandatory=$true)][string]$Message)
+        try {
+            Add-Content -Path $logPath -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message" -ErrorAction SilentlyContinue
+        } catch {
+            # Last resort: write to host
+            Write-Host $Message -ForegroundColor Yellow
+        }
+    }
+}
+
+if (-not (Get-Command -Name Write-Status -ErrorAction SilentlyContinue)) {
+    function Write-Status {
+        param([string]$Message, [ValidateSet('Red','Yellow','Green','Cyan','White','Magenta','Gray')] [string]$Color = 'White')
+        try { Write-Host $Message -ForegroundColor $Color } catch { Write-Host $Message }
+    }
+}
+
+# Helper: find DHCP servers to query for a given AU
+function Get-DHCPServersForAU {
+    param(
+        [string]$AU,
+        [pscredential]$Credential = $null
+    )
+    $servers = @()
+    try {
+        if ($config -and $config.NetworkSettings -and $config.NetworkSettings.PrimaryDHCPServer) { $servers += $config.NetworkSettings.PrimaryDHCPServer }
+        if ($config -and $config.NetworkSettings -and $config.NetworkSettings.DHCPServers) { $servers += $config.NetworkSettings.DHCPServers }
+        $servers = $servers | Where-Object { $_ } | Select-Object -Unique
+
+        if (-not $servers -and $config -and $config.ServerNaming -and $config.ServerNaming.DHCPServerPattern) {
+            $pattern = $config.ServerNaming.DHCPServerPattern
+            $filter = "Name -like '$pattern' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'"
+            $adParams = @{ Filter = $filter; Properties = 'Name','IPv4Address'; ErrorAction = 'SilentlyContinue' }
+            if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $adParams['Server'] = $config.InternalDomains.PrimaryDomain }
+            # If a credential was provided and appears valid, include it for AD lookups
+            if ($Credential -and (Test-ADCredentials -Credential $Credential)) { $adParams['Credential'] = $Credential }
+            try {
+                $adComputers = Get-ADComputer @adParams
+                if ($adComputers) { $servers += ($adComputers | Select-Object -ExpandProperty Name) }
+            } catch {
+                # Ignore AD lookup failures here; return empty if none found
+            }
+        }
+    } catch {
+        # swallow
+    }
+    return $servers | Select-Object -Unique
+}
 
 # Configurable Logging: Default to verbose logging enabled (moved early for config loading)
-                "12b" {
-                    # Graphical Ping to Fuse (use host-list like VCAHospLauncher #13)
-                    try {
-                        # Prefer the richer site-hostname list if helper is available
-                        if (Get-Command -Name Get-VcaSiteHostname -ErrorAction SilentlyContinue) {
-                            $siteHostnames = Get-VcaSiteHostname -ComputerName $AU -Cluster $Cluster -ClusterSite $ClusterSite -NetServices $NetServices
-                        }
-                        else {
-                            # Fallback to only the fuse hostname
-                            $siteHostnames = @(Convert-VcaAu -AU $AU -Suffix '-fuse')
-                        }
 
-                        if (-not $siteHostnames) { throw 'No hostnames determined for this AU.' }
-
-                        $binDir = Join-Path $PSScriptRoot 'Private\bin'
-                        if (-not (Test-Path $binDir)) { New-Item -Path $binDir -ItemType Directory -Force | Out-Null }
-
-                        # Ensure PingInfoView is installed (same download/extract fallback)
-                        $pingInfoPath = Join-Path $binDir 'PingInfoView.exe'
-                        if (-not (Test-Path $pingInfoPath)) {
-                            Write-Host "PingInfoView.exe not found in bin folder. Attempting to download and install it..." -ForegroundColor Yellow
-                            try {
-                                $zipUrl = 'https://www.nirsoft.net/utils/pinginfoview.zip'
-                                $zipPath = Join-Path $env:TEMP 'pinginfoview.zip'
-                                if (Test-Path $zipPath) { Remove-Item $zipPath -Force -ErrorAction SilentlyContinue }
-
-                                Write-Host "Downloading PingInfoView from $zipUrl..." -ForegroundColor Cyan
-                                Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -ErrorAction Stop
-
-                                Write-Host "Extracting PingInfoView to $binDir..." -ForegroundColor Cyan
-                                try {
-                                    if (Get-Command -Name Expand-Archive -ErrorAction SilentlyContinue) {
-                                        Expand-Archive -LiteralPath $zipPath -DestinationPath $binDir -Force
-                                    } else {
-                                        Add-Type -AssemblyName System.IO.Compression.FileSystem
-                                        [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $binDir)
-                                    }
-                                } catch {
-                                    Write-Host "Extraction failed: $($_.Exception.Message)" -ForegroundColor Red
-                                    throw
-                                }
-
-                                Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-                            } catch {
-                                Write-Host "Failed to download or install PingInfoView: $($_.Exception.Message)" -ForegroundColor Red
-                                Write-Host "You can manually download PingInfoView from https://www.nirsoft.net/utils/pinginfoview.html and place PingInfoView.exe into Private\\bin." -ForegroundColor Yellow
-                            }
-                        }
-
-                        if (-not (Test-Path $pingInfoPath)) { throw 'PingInfoView.exe not available.' }
-
-                        # Verify each hostname resolves and highlight unresolved hosts
-                        $resolved = @()
-                        $unresolved = @()
-                        foreach ($h in $siteHostnames) {
-                            try {
-                                $ips = [System.Net.Dns]::GetHostAddresses($h) | ForEach-Object { $_.IPAddressToString }
-                                if ($ips) { $resolved += $h } else { $unresolved += $h }
-                            } catch {
-                                $unresolved += $h
-                            }
-                        }
-                        if ($unresolved) {
-                            Write-Host "Warning: The following hostnames could not be resolved: $($unresolved -join ', ')" -ForegroundColor Yellow
-                        }
-
-                        # Create Servers.txt with the full host list (one per line) like VCAHospLauncher
-                        $serversFile = Join-Path $binDir 'Servers.txt'
-                        $siteHostnames | Out-File -FilePath $serversFile -Encoding ASCII -Force
-
-                        # Compute connection/title info (try VPN client first, else local IP)
-                        try {
-                            if (Test-Path -Path "C:\Program Files (x86)\Cisco\Cisco AnyConnect Secure Mobility Client\vpncli.exe") {
-                                $vpn_stats = New-Object PSObject; &"C:\Program Files (x86)\Cisco\Cisco AnyConnect Secure Mobility Client\vpncli.exe" stats |
-                                    Where-Object {(($_ -match ':') -and ($_ -notlike "*>>*"))} |
-                                    ForEach-Object {$Item = ($_.Trim() -split ': ').trim(); $vpn_stats | Add-Member -MemberType NoteProperty -Name $($Item[0]) -Value $Item[1] -ErrorAction SilentlyContinue }
-                                if ($vpn_stats.'Connection State' -eq 'Connected') {
-                                    $ConnectionInfo = "- [Source IP: $($vpn_stats.'Client Address (IPv4)') via ($([System.Net.Dns]::GetHostEntry($vpn_stats.'Server Address').HostName) - $($vpn_stats.'Connection State'))]"
-                                }
-                            }
-                        } catch {
-                            # fallback to local ip
-                        }
-                        if (-not $ConnectionInfo) {
-                            $localIps = (Get-NetIPConfiguration).IPv4Address.IPAddress | Where-Object { $_ -notmatch "^192\.|^169\." }
-                            $ConnectionInfo = $localIps | ForEach-Object { "- [Source IP: $_ ($([System.Net.Dns]::GetHostEntry($_).HostName))]" } | Select-Object -First 1
-                        }
-
-                        # Launch PingInfoView loading the file so the GUI shows the ordered host list
-                        $proc = Start-Process -FilePath $pingInfoPath -ArgumentList "/loadfile Servers.txt /PingEvery 1 /PingEverySeconds 5" -WorkingDirectory $binDir -PassThru
-                        Start-Sleep -Milliseconds 500
-
-                        try {
-                            $p = Get-Process -Id $proc.Id -ErrorAction SilentlyContinue
-                            if ($p -and $p.MainWindowHandle) {
-                                if ($siteHostnames.count -gt 1) {
-                                    $auDisplay = Convert-VcaAU -AU (@($siteHostnames[0])) -Prefix AU -Suffix '' -NoLeadingZeros
-                                } else {
-                                    $auDisplay = $siteHostnames[0]
-                                }
-                                [PInvoke.User]::SetWindowText($p.MainWindowHandle, "$($p.MainWindowTitle) - VCA Ops Portal v.$version - $auDisplay $ConnectionInfo") | Out-Null
-                            }
-                        } catch {
-                            # Non-fatal if title change fails
-                        }
-
-                        Write-Host "Launching PingInfoView for AU $AU (hosts: $($siteHostnames -join ', '))." -ForegroundColor Green
-
-                        # Clear Servers.txt contents immediately so no sensitive host list remains
-                        try { Set-Content -Path $serversFile -Value '' -Encoding ASCII -Force } catch { }
-
-                    } catch {
-                        Write-Host "Could not launch PingInfoView for AU $AU: $($_.Exception.Message)" -ForegroundColor Red
-                    }
-                }
+ 
 
 # Security check: Verify domain membership if required
-if ($config.SecuritySettings.RequireDomainJoin) {
+# Note: $config and helper logging functions may not be defined yet (loaded later).
+# Guard access so the script can be parsed/loaded even when config isn't available.
+if ($null -ne $config -and $config.SecuritySettings -and $config.SecuritySettings.RequireDomainJoin) {
     try {
         $domainInfo = Get-WmiObject -Class Win32_ComputerSystem -ErrorAction Stop
         $isDomainJoined = $domainInfo.PartOfDomain
         $domainName = $domainInfo.Domain
 
         if (-not $isDomainJoined -or $domainName -notlike "*$($config.InternalDomains.PrimaryDomain)*") {
-            Write-Status "SECURITY WARNING: This script requires a domain-joined machine on the $($config.InternalDomains.PrimaryDomain) domain." Red
-            Write-Status "Please run this script from a properly configured corporate machine." Red
-            Write-Status "Press any key to exit..." Yellow
+            # Use Write-Host here because Write-Status may not be available yet
+            Write-Host "SECURITY WARNING: This script requires a domain-joined machine on the $($config.InternalDomains.PrimaryDomain) domain." -ForegroundColor Red
+            Write-Host "Please run this script from a properly configured corporate machine." -ForegroundColor Red
+            Write-Host "Press any key to exit..." -ForegroundColor Yellow
             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             exit 1
         }
     } catch {
-        Write-Status "Warning: Could not verify domain membership. Some features may not work." Yellow
-        Write-Log "Domain check error: $($_.Exception.Message)"
+        # Fail gracefully if domain check cannot be completed during initial load
+        Write-Host "Warning: Could not verify domain membership. Some features may not work." -ForegroundColor Yellow
     }
+} else {
+    # Skip domain membership check if configuration isn't loaded yet
+    Write-Host "Skipping initial domain membership check (configuration not loaded yet)." -ForegroundColor Yellow
 }
 
 # Set console colors to match the style (dark blue background, white foreground) - moved to beginning
@@ -158,7 +138,7 @@ function Write-ConditionalLog {
 
 # Function to validate AD credentials with -ErrorAction Stop
 function Test-ADCredentials {
-    param($Credential)
+    param([pscredential]$Credential)
     if ($Credential -isnot [pscredential]) { return $false }
     try {
         Get-ADDomain -Credential $Credential -ErrorAction Stop | Out-Null
@@ -170,6 +150,7 @@ function Test-ADCredentials {
 }
 
 function Get-ADSecureCredential {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSAvoidUsingPlainTextForPassword", "CredPath")]
     param(
         [string]$CredPath,
         [string]$PromptMessage = "Enter AD domain credentials (e.g., vcaantech\youruser)",
@@ -214,30 +195,10 @@ if ($isDomainJoined -and -not $ADCredential) {
     Write-Status "Using current domain credentials (no explicit creds needed)." Cyan
 }
 
-# Add this section to store and load SharePoint Online Credentials
-$credPathSPO = "$PSScriptRoot\Private\vcaspocred.xml"
-$SPOCredential = $null
 
-# --- Load Saved SharePoint Online Credentials ---
-if (Test-Path $credPathSPO) {
-    try {
-        # Using Import-Clixml to securely load the saved PSCredential object
-        $SPOCredential = Import-Clixml $credPathSPO -ErrorAction Stop
-        Write-Status "SharePoint credentials loaded from disk." Green
-    } catch {
-        Write-Status "Warning: Failed to load SharePoint credentials: $($_.Exception.Message)" Yellow
-        # If loading fails (e.g., corrupt file), delete it so we can prompt again
-        Remove-Item $credPathSPO -Force -ErrorAction SilentlyContinue
-    }
-}
 
 # Get script path and last write time
 $scriptPath = $MyInvocation.MyCommand.Path
-if ($scriptPath) {
-    $lastWritten = (Get-Item $scriptPath).LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
-} else {
-    $lastWritten = "N/A"
-}
 
 # Helper functions moved outside try block for reliability
 
@@ -366,7 +327,8 @@ function Get-CachedServers {
     param($AU, [pscredential]$Credential = $null)
 
     $cacheKey = $AU
-    $cacheExpiry = $config.SecuritySettings.CredentialCacheMinutes  # Use config value
+    # Safe default for cache expiry if config not available
+    $cacheExpiry = if ($config -and $config.SecuritySettings -and $config.SecuritySettings.CredentialCacheMinutes) { $config.SecuritySettings.CredentialCacheMinutes } else { 10 }
     if ($validAUs.ContainsKey($cacheKey) -and $validAUs[$cacheKey].Timestamp -is [DateTime] -and ((Get-Date) - $validAUs[$cacheKey].Timestamp).TotalMinutes -lt $cacheExpiry) {
         return $validAUs[$cacheKey].Servers
     }
@@ -378,10 +340,13 @@ function Get-CachedServers {
 
     do {
         try {
+            # Build AD params and only include Server if configured
             $adComputerParams = @{
                 Filter      = "Name -like '$SiteAU-ns*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'"
-                Server      = $config.InternalDomains.PrimaryDomain
                 ErrorAction = 'Stop'
+            }
+            if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) {
+                $adComputerParams['Server'] = $config.InternalDomains.PrimaryDomain
             }
 
             # Only add Credential if explicitly provided and valid (don't force it)
@@ -542,80 +507,8 @@ function Sync-Repo {
 }
 
 # --- REVISED Function for PS 5.1 Compatible SharePoint Download and Credential Saving ---
-function Update-HospitalMaster {
-    param(
-        [string]$SharePointBaseUrl = 'https://vca365.sharepoint.com/sites/WOOFconnect/regions',
-        [string]$HospitalMasterPath = '/Documents/HOSPITALMASTER.xlsx',
-        [string]$DestinationPath = "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx",
-        [System.Management.Automation.PSCredential]$ExistingCredential, # Loaded from disk (not used with PnP.PowerShell)
-        [string]$CredPathSPO # Path to save credentials (not used with PnP.PowerShell)
-    )
-
-    # Use PnP.PowerShell approach like VCAHospLauncher.ps1 for better authentication handling
-    $CsvPath = "$PSScriptRoot\Private\csv"
-    $HospitalMasterXlsx = "$CsvPath\HOSPITALMASTER.xlsx"
-    $HospitalMasterXlsxNew = "$CsvPath\HOSPITALMASTER_new.xlsx"
-
-    if (-not (Test-Path -Path $CsvPath)) {
-        New-Item -ItemType Directory -Path $CsvPath | Out-Null
-    }
-
-    # Download using PnP.PowerShell (handles modern auth including MFA/SSO)
-    try {
-        Write-Status "Connecting to SharePoint Online..." Cyan
-        Connect-PnPOnline -Url $SharePointBaseUrl -UseWebLogin -ErrorAction Stop -WarningAction Ignore
-        # Reset console colors after PnP.PowerShell connection (it may change them)
-        $host.UI.RawUI.BackgroundColor = "Black"
-        $host.UI.RawUI.ForegroundColor = "White"
-
-        Write-Status "Downloading HOSPITALMASTER.xlsx..." Cyan
-        Get-PnPFile -Url $HospitalMasterPath -Path $CsvPath -Filename 'HOSPITALMASTER_new.xlsx' -AsFile -Force -ErrorAction Stop
-
-        # Check if we have an existing file to compare
-        if (Test-Path -Path $HospitalMasterXlsx) {
-            # Get file hash to check if it's different
-            $CurrentHash = Get-FileHash -Path $HospitalMasterXlsx -Algorithm SHA256
-            $NewHash = Get-FileHash -Path $HospitalMasterXlsxNew -Algorithm SHA256
-
-            # Check if downloaded file is newer (different)
-            if ($CurrentHash.Hash -ne $NewHash.Hash) {
-                Write-Status "New version of hospital master found... updating" Green
-                # Rename and move new file
-                Move-Item -Path $HospitalMasterXlsxNew -Destination $HospitalMasterXlsx -Force
-                Write-Status "Hospital Master successfully updated" Green
-            } else {
-                # Files are the same
-                $HospitalFileDate = '{0:M/dd/yyyy h:mm tt}' -f (Get-Item -Path $HospitalMasterXlsx | Select-Object -ExpandProperty LastWriteTime)
-                Write-Status "Hospital master XLSX is already up-to-date (Last Write Time: $HospitalFileDate)" Cyan
-                # Remove duplicate file
-                Remove-Item -Path $HospitalMasterXlsxNew
-            }
-        } else {
-            # No existing file, move the new one
-            Write-Status "Hospital master XLSX downloaded successfully" Green
-            Move-Item -Path $HospitalMasterXlsxNew -Destination $HospitalMasterXlsx -Force
-        }
-
-        return $true # Success
-
-    } catch {
-        $errorMessage = $_.Exception.Message
-        Write-Status "Download failed: $($errorMessage)" Red
-
-        # Clean up any partial downloads
-        if (Test-Path -Path $HospitalMasterXlsxNew) {
-            Remove-Item -Path $HospitalMasterXlsxNew -Force
-        }
-
-        # If we have a local copy, mention it
-        if (Test-Path -Path $HospitalMasterXlsx) {
-            $HospitalFileDate = '{0:M/dd/yyyy h:mm tt}' -f (Get-Item -Path $HospitalMasterXlsx | Select-Object -ExpandProperty LastWriteTime)
-            Write-Status "Using existing local hospital master XLSX (Last Write Time: $HospitalFileDate)" Yellow
-        }
-
-        return $false # Failure
-    }
-}
+<# Update-HospitalMaster has been moved to Private\UtilityFunctions.ps1 to avoid duplicate definitions.
+   The main script dot-sources Private files on startup so you can call Update-HospitalMaster as before. #>
 
 # Set global script root for use in functions
 $global:ScriptRoot = $PSScriptRoot
@@ -832,13 +725,14 @@ try {
         }
         $SiteAU = Convert-VcaAu -AU $AU -Suffix ''
         try {
-            # Use splatting for Get-ADComputer
+            # Use splatting for Get-ADComputer; only include Server/Credential if available
             $adComputerParams = @{
                 Filter      = "Name -like '$SiteAU-ns*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'"
-                Server      = $config.InternalDomains.PrimaryDomain
-                Credential  = $ADCredential
                 ErrorAction = 'Stop'
             }
+            if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $adComputerParams['Server'] = $config.InternalDomains.PrimaryDomain }
+            if ($ADCredential -and ($ADCredential -is [pscredential])) { $adComputerParams['Credential'] = $ADCredential }
+
             $adServers = Get-ADComputer @adComputerParams | Select-Object -ExpandProperty Name | Sort-Object Name
             if (-not $adServers -or $adServers.Count -eq 0) {
                 throw "No -NS servers found for AU $AU."
@@ -864,7 +758,7 @@ try {
         # Cache for IP resolutions (optimization: avoid repeated DNS calls)
         $ipCache = @{}
 
-        $dhcpServer = $config.NetworkSettings.PrimaryDHCPServer
+    $dhcpServers = Get-DHCPServersForAU -AU $AU -Credential $ADCredential
         $hostname = Convert-VcaAu -AU $AU -Suffix '-gw'
 
         # Resolve gateway IP using helper function
@@ -878,12 +772,21 @@ try {
         }
         $ip = $ipAddresses[0].ToString()
         $scopeId = $ip -replace '\.\d+$', '.0'
-
-        # Retrieve DHCP leases using helper function
-        Write-Progress -Activity "Retrieving DHCP leases" -Status "Connecting to $dhcpServer..." -PercentComplete 50
-        $leases = Get-DHCPLeases -DHCPServer $dhcpServer -ScopeId $scopeId
-        if (-not $leases) {
-            Write-Host "No leases found for scope '$scopeId'."
+        # Retrieve DHCP leases using configured DHCP servers
+        $leases = @()
+        if (-not $dhcpServers -or $dhcpServers.Count -eq 0) {
+            Write-Status "No DHCP servers configured or discovered for AU $AU. Skipping DHCP lease/reservation queries." Yellow
+        } else {
+            Write-Progress -Activity "Retrieving DHCP leases" -Status "Connecting to DHCP servers..." -PercentComplete 50
+            foreach ($dhcpServer in $dhcpServers) {
+                try {
+                    $serverLeases = Get-DHCPLeases -DHCPServer $dhcpServer -ScopeId $scopeId -ErrorAction Stop
+                    if ($serverLeases) { $leases += $serverLeases }
+                } catch {
+                    Write-Status "WARNING: Could not retrieve leases from DHCP server '$dhcpServer': $($_.Exception.Message)" Yellow
+                }
+            }
+            if (-not $leases) { Write-Host "No leases found for scope '$scopeId'." }
         }
 
         # Process each group and find matching leases
@@ -915,7 +818,18 @@ try {
 
         # Retrieve and display DHCP reservations for the scope using helper function
         Write-Host "`nDHCP Reservations for scope $scopeId" -ForegroundColor Green
-        $reservations = Get-DHCPReservations -DHCPServer $dhcpServer -ScopeId $scopeId
+        $reservations = @()
+        if ($dhcpServers -and $dhcpServers.Count -gt 0) {
+            foreach ($dhcpServer in $dhcpServers) {
+                try {
+                    $serverRes = Get-DHCPReservations -DHCPServer $dhcpServer -ScopeId $scopeId -ErrorAction Stop
+                    if ($serverRes) { $reservations += $serverRes }
+                } catch {
+                    Write-Status "WARNING: Could not retrieve reservations from DHCP server '$dhcpServer': $($_.Exception.Message)" Yellow
+                }
+            }
+        }
+
         if ($reservations) {
             $reservations | Sort-Object IPAddress | Format-Table -Property IPAddress, ClientId, Name, Description, @{Name="DeviceGroup"; Expression={Get-DeviceGroup $_.ClientId}}
             $groupResults += $reservations
@@ -1066,7 +980,7 @@ try {
     }
 
     # Function for Woofware Errors Check (optimized: uses helpers, splatting, better job cleanup)
-    function Woofware-ErrorsCheck {
+    function Get-WoofwareErrors {
         param([string]$AU)
         Write-Log "Starting Woofware Errors Check for AU $AU"
 
@@ -1095,8 +1009,6 @@ try {
                             ComputerName = $server
                             SessionOption = New-PSSessionOption -OperationTimeout 60000 -IdleTimeout 60000
                             ScriptBlock = {
-                                $time = (Get-CimInstance win32_operatingsystem).LocalDateTime
-                                $serverTime = $using:server + '  ' + $time
 
                                 try {
                                     $allErrors = Get-WinEvent -FilterHashtable @{logname='Application';ProviderName='Woofware'; level=2} -MaxEvents 200 -ErrorAction Stop
@@ -1324,17 +1236,24 @@ try {
         }
     }
 
-    # New: Function for Woofware Errors Check by User (variant of Woofware-ErrorsCheck)
-    function Woofware-ErrorsCheckByUser {
+    # New: Function for Woofware Errors Check by User (variant of Get-WoofwareErrors)
+    function Get-WoofwareErrorsByUser {
         param([string]$AU)
         Write-Log "Starting Woofware Errors Check by User for AU $AU"
 
         # Step 1: Select username from AD group (similar to option 5)
         $adGroupName = 'H' + $AU.PadLeft(4, '0')
         try {
-            $groupMembers = Get-ADGroupMember -Identity $adGroupName -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-            $adUsers = $groupMembers | Get-ADUser -Properties Name, SamAccountName -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop |
-                       Select-Object Name, SamAccountName | Sort-Object Name
+            # Build parameters safely for Get-ADGroupMember and Get-ADUser
+            $groupParams = @{ Identity = $adGroupName; ErrorAction = 'Stop' }
+            if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $groupParams['Server'] = $config.InternalDomains.PrimaryDomain }
+            if ($ADCredential -and ($ADCredential -is [pscredential])) { $groupParams['Credential'] = $ADCredential }
+            $groupMembers = Get-ADGroupMember @groupParams | Where-Object { $_.objectClass -eq 'user' }
+
+            $getUserParams = @{ Properties = 'Name','SamAccountName'; ErrorAction = 'Stop' }
+            if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $getUserParams['Server'] = $config.InternalDomains.PrimaryDomain }
+            if ($ADCredential -and ($ADCredential -is [pscredential])) { $getUserParams['Credential'] = $ADCredential }
+            $adUsers = $groupMembers | Get-ADUser @getUserParams | Select-Object Name, SamAccountName | Sort-Object Name
             if ($adUsers) {
                 $selectedUser = $adUsers | Out-GridView -Title "Select user to filter Woofware errors for AU $AU" -OutputMode Single
                 if ($selectedUser) {
@@ -1345,7 +1264,7 @@ try {
             }
         } catch {
             Write-Host "Failed to query AD group '$adGroupName' for AU $AU. Error: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Log "AD query error in Woofware-ErrorsCheckByUser: $($_.Exception.Message)"
+            Write-Log "AD query error in Get-WoofwareErrorsByUser: $($_.Exception.Message)"
         }
 
         # Prompt for username if not selected or no users
@@ -1380,9 +1299,6 @@ try {
                     try {
                         $sessionOption = New-PSSessionOption -OperationTimeout 60000 -IdleTimeout 60000
                         Invoke-Command -ComputerName $server -SessionOption $sessionOption -ScriptBlock {
-                            $time = (Get-CimInstance win32_operatingsystem).LocalDateTime
-                            $serverTime = $using:server + '  ' + $time
-
                             try {
                                 $allErrors = Get-WinEvent -FilterHashtable @{logname='Application';ProviderName='Woofware'; level=2} -MaxEvents 200 -ErrorAction Stop
                             } catch {
@@ -1616,7 +1532,7 @@ try {
     }
 
     # New: Function for Application Hang Errors Check
-    function ApplicationHang-ErrorsCheck {
+    function Get-ApplicationHangErrors {
         param([string]$AU)
         Write-Log "Starting Application Hang Errors Check for AU $AU"
 
@@ -2019,7 +1935,7 @@ try {
     }
 
     # Function for User Logon Check
-    function User-LogonCheck {
+    function Get-UserLogon {
         param([string]$AU, [string]$Username, [switch]$SkipPropertiesDisplay)
 
         try {
@@ -2027,11 +1943,17 @@ try {
 
             # List AD users in the hospital group for selection
             $adGroupName = 'H' + $AU.PadLeft(4, '0')
-            Write-Log "Debug: User-LogonCheck group name '$adGroupName' for AU $AU"
+            Write-Log "Debug: Get-UserLogon group name '$adGroupName' for AU $AU"
             try {
-                $groupMembers = Get-ADGroupMember -Identity $adGroupName -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-                $adUsers = $groupMembers | Get-ADUser -Properties Name, SamAccountName, EmailAddress, Title -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop | 
-                           Select-Object Name, SamAccountName, EmailAddress, Title | Sort-Object Name
+                $groupParams = @{ Identity = $adGroupName; ErrorAction = 'Stop' }
+                if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $groupParams['Server'] = $config.InternalDomains.PrimaryDomain }
+                if ($ADCredential -and ($ADCredential -is [pscredential])) { $groupParams['Credential'] = $ADCredential }
+                $groupMembers = Get-ADGroupMember @groupParams | Where-Object { $_.objectClass -eq 'user' }
+
+                $getUserParams = @{ Properties = 'Name','SamAccountName','EmailAddress','Title'; ErrorAction = 'Stop' }
+                if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $getUserParams['Server'] = $config.InternalDomains.PrimaryDomain }
+                if ($ADCredential -and ($ADCredential -is [pscredential])) { $getUserParams['Credential'] = $ADCredential }
+                $adUsers = $groupMembers | Get-ADUser @getUserParams | Select-Object Name, SamAccountName, EmailAddress, Title | Sort-Object Name
                 if ($adUsers) {
                     $selectedUser = $adUsers | Out-GridView -Title "Select user from AD group $adGroupName for AU $AU" -OutputMode Single
                     if ($selectedUser) {
@@ -2053,8 +1975,15 @@ try {
             if (-not $SkipPropertiesDisplay) {
                 try {
                     # Get domain password policy for expiry calculation
-                    $MaxPasswordAge = (Get-ADDefaultDomainPasswordPolicy -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential).MaxPasswordAge
-                    $adUser = Get-ADUser -Identity $Username -Properties Name, Title, OfficePhone, Office, Department, EmailAddress, StreetAddress, City, State, PostalCode, SID, Created, extensionAttribute3, PasswordLastSet -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop
+                    $pwdParams = @{ ErrorAction = 'Stop' }
+                    if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $pwdParams['Server'] = $config.InternalDomains.PrimaryDomain }
+                    if ($ADCredential -and ($ADCredential -is [pscredential])) { $pwdParams['Credential'] = $ADCredential }
+                    $MaxPasswordAge = (Get-ADDefaultDomainPasswordPolicy @pwdParams).MaxPasswordAge
+
+                    $userParams = @{ Identity = $Username; Properties = 'Name','Title','OfficePhone','Office','Department','EmailAddress','StreetAddress','City','State','PostalCode','SID','Created','extensionAttribute3','PasswordLastSet'; ErrorAction = 'Stop' }
+                    if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $userParams['Server'] = $config.InternalDomains.PrimaryDomain }
+                    if ($ADCredential -and ($ADCredential -is [pscredential])) { $userParams['Credential'] = $ADCredential }
+                    $adUser = Get-ADUser @userParams
                     Write-Host "`nAD Properties for $Username :" -ForegroundColor Cyan
                     $adUser | Select-Object Name, Title, @{n='OfficePhone'; e={$_.OfficePhone}}, Office, Department, EmailAddress, StreetAddress, City, State, PostalCode, SID, Created, extensionAttribute3, PasswordLastSet, @{n='PasswordExpires'; e={ if ($_.PasswordLastSet) { $_.PasswordLastSet + $MaxPasswordAge } else { 'Never Set' } }} | Format-List
                 } catch {
@@ -2299,151 +2228,8 @@ try {
                 }
             }
         } catch {
-            Write-Host "Error in User-LogonCheck: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Log "Error in User-LogonCheck: $($_.Exception.Message)"
-        }
-    }
-
-    # Function for Kill Sparky Shell (updated to use parallel Invoke-Command for speed)
-    function Kill-SparkyShell {
-        param([string]$AU)
-        Write-Log "Starting Kill Sparky Shell for AU $AU"
-        try {
-            $servers = Get-CachedServers -AU $AU
-            if (-not $servers) {
-                Write-Host "No servers found for AU $AU." -ForegroundColor Yellow
-                return
-            }
-
-            Write-Host "Searching for Sparky processes and files on $($servers.Count) servers..." -ForegroundColor Cyan
-            $results = Invoke-Command -ComputerName $servers -ScriptBlock {
-                $processes = Get-Process | Where-Object { $_.Name -like "*Sparky*" } -ErrorAction SilentlyContinue
-                $results = @()
-                foreach ($process in $processes) {
-                    try {
-                        $owner = (Get-WmiObject -Class Win32_Process -Filter "ProcessId = $($process.Id)").GetOwner()
-                        $userName = $owner.User
-                    } catch {
-                        $userName = "Unknown"
-                    }
-                    $results += [PSCustomObject]@{
-                        Server    = $env:COMPUTERNAME
-                        ProcessId = $process.Id
-                        ProcessName = $process.Name
-                        UserName  = $userName
-                        StartTime = $process.StartTime
-                    }
-                }
-                # Search for Sparky files in common locations (limited recursion for performance)
-                $files = Get-ChildItem -Path "C:\Program Files", "C:\Program Files (x86)", "C:\" -Filter "*Sparky*" -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object FullName
-                [PSCustomObject]@{
-                    SparkyResults = $results
-                    SparkyFiles = $files
-                }
-            } -ErrorAction SilentlyContinue
-
-            $processResults = $results | ForEach-Object { $_.SparkyResults } | Where-Object { $_ }
-            $sparkyFiles = $results | ForEach-Object { $_.SparkyFiles } | Where-Object { $_ }
-
-            if ($processResults) {
-                $selected = $processResults | Out-GridView -Title "Select Sparky process to kill for AU $AU" -OutputMode Single
-                if ($selected) {
-                    Write-Host "Attempting to kill $($selected.ProcessName) (PID: $($selected.ProcessId)) on $($selected.Server) for user $($selected.UserName)..." -ForegroundColor Yellow
-                    Invoke-Command -ComputerName $selected.Server -ScriptBlock {
-                        param($processId)
-                        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-                    } -ArgumentList $selected.ProcessId -ErrorAction Stop
-                    Write-Host "Killed $($selected.ProcessName) process on $($selected.Server)." -ForegroundColor Green
-                    Write-Log "Killed $($selected.ProcessName) process ID $($selected.ProcessId) on $($selected.Server) for user $($selected.UserName)"
-                } else {
-                    Write-Host "No process selected." -ForegroundColor Yellow
-                }
-            } else {
-                Write-Host "No processes with 'Sparky' in the name found on any server for AU $AU." -ForegroundColor Yellow
-                if ($sparkyFiles) {
-                    Write-Host "Found Sparky-related files on servers (for debugging):" -ForegroundColor Cyan
-                    $sparkyFiles | Format-Table -AutoSize
-                } else {
-                    Write-Host "No Sparky-related files found in common locations on servers." -ForegroundColor Yellow
-                }
-            }
-        } catch {
-            Write-Host "Error in Kill-SparkyShell: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Log "Error in Kill-SparkyShell: $($_.Exception.Message)"
-        }
-    }
-
-    # Function for Update Hospital Master (copied from VCAHospLauncher.ps1)
-
-
-
-
-    # Function for AD User Management (copied from created file)
-    function ADUserManagement {
-        param([string]$AU, [pscredential]$Credential)
-
-        $groupName = 'H' + $AU.PadLeft(4, '0')
-        Write-Host "Debug: ADUserManagement group name '$groupName' for AU $AU" -ForegroundColor Cyan
-        Write-Log "Debug: ADUserManagement group name '$groupName' for AU $AU"
-
-        # Load admin credentials for password reset/unlock
-        $adminCredPath = "$PSScriptRoot\Private\vcaadmin.xml"
-        if (Test-Path $adminCredPath) {
-            try {
-                $adminCredential = Import-Clixml -Path $adminCredPath
-            } catch {
-                Write-Host "Failed to load admin credentials: $($_.Exception.Message)" -ForegroundColor Red
-                return
-            }
-        } else {
-            Write-Host "Admin credentials file not found at $adminCredPath. Cannot perform password reset or unlock." -ForegroundColor Red
-            return
-        }
-
-        try {
-            # Get group members and their AD user details
-            $groupMembers = Get-ADGroupMember -Identity $groupName -Server $config.InternalDomains.PrimaryDomain -Credential $Credential -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-            $users = $groupMembers | Get-ADUser -Properties Name, SamAccountName, EmailAddress, LockedOut, PasswordExpired, LastLogonDate -Server $config.InternalDomains.PrimaryDomain -Credential $Credential -ErrorAction Stop
-
-            if (-not $users) {
-                Write-Host "No users found in group $groupName." -ForegroundColor Yellow
-                return
-            }
-
-            # Display users in grid for selection, sorted by Name
-            $selectedUser = $users | Select-Object Name, SamAccountName, EmailAddress, LockedOut, PasswordExpired, LastLogonDate | 
-                            Sort-Object Name | Out-GridView -Title "Select user for management in AU $AU" -OutputMode Single
-
-            if ($selectedUser) {
-                Write-Host "Selected user: $($selectedUser.Name) ($($selectedUser.SamAccountName))" -ForegroundColor Cyan
-                $action = Read-Host "Choose action: (r)eset password, (u)nlock account, (c)ancel"
-
-                switch ($action.ToLower()) {
-                    'r' {
-                        $newPassword = Read-Host "Enter new password (will be converted to secure string)" -AsSecureString
-                        if ($newPassword) {
-                            Set-ADAccountPassword -Identity $selectedUser.SamAccountName -NewPassword $newPassword -Credential $adminCredential -ErrorAction Stop
-                            Write-Host "Password reset successfully for $($selectedUser.SamAccountName)." -ForegroundColor Green
-                        } else {
-                            Write-Host "No password entered. Cancelled." -ForegroundColor Yellow
-                        }
-                    }
-                    'u' {
-                        Unlock-ADAccount -Identity $selectedUser.SamAccountName -Credential $adminCredential -ErrorAction Stop
-                        Write-Host "Account unlocked successfully for $($selectedUser.SamAccountName)." -ForegroundColor Green
-                    }
-                    'c' {
-                        Write-Host "Operation cancelled." -ForegroundColor Yellow
-                    }
-                    default {
-                        Write-Host "Invalid choice. Cancelled." -ForegroundColor Yellow
-                    }
-                }
-            } else {
-                Write-Host "No user selected." -ForegroundColor Yellow
-            }
-        } catch {
-            Write-Host "Error fetching AD users for group $groupName : $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "Error in Get-UserLogon: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Log "Error in Get-UserLogon: $($_.Exception.Message)"
         }
     }
 
@@ -2515,7 +2301,7 @@ try {
     }
 
     # Main function to select scope and run Angry IP Scanner (modified option 18)
-    function Run-AngryIPOnScope {
+    function Invoke-AngryIPScanOnScope {
         param([string]$AU)
         Write-Log "Starting Run Angry IP Scanner on DHCP Scope for AU $AU"
 
@@ -2536,28 +2322,23 @@ try {
             $Credential = $null
         }
 
-        # Select DHCP server (similar to VCAHospLauncher option 24)
+        # Discover DHCP servers using Get-DHCPServersForAU (pass AD credential so AD lookups succeed under non-implicit credentials)
         Write-Host "Selecting DHCP server..." -ForegroundColor Cyan
-        $SiteAU = Convert-VcaAu -AU $AU -Suffix ''
-        $SiteDC = Get-ADComputer -Filter "Name -like '$SiteAU-dc*' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'" -Properties CanonicalName, IPv4Address -ErrorAction SilentlyContinue
-        $PhoenixDC = Get-ADComputer -Filter "Name -like '$($config.ServerNaming.DHCPServerPattern)' -and Name -notlike '*CNF:*' -and OperatingSystem -like '*Server*'" -Properties CanonicalName, IPv4Address -ErrorAction SilentlyContinue
+        $dhServerNames = Get-DHCPServersForAU -AU $AU -Credential $ADCredential
 
-        $DhcpServers = @()
-        ($SiteDC + $PhoenixDC) | ForEach-Object {
-            if ($_) {
-                $DhcpServers += [PSCustomObject]@{
-                    Name          = $_.Name
-                    ADIPv4Address = $_.IPv4Address
-                    CanonicalName = $_.CanonicalName
-                    Status        = $_.Name | Get-PingStatus
-                }
-            }
-        }
-
-        if (-not $DhcpServers) {
+        if (-not $dhServerNames -or $dhServerNames.Count -eq 0) {
             Write-Host "No DHCP servers found for AU $AU." -ForegroundColor Red
             Write-Log "No DHCP servers found for AU $AU"
             return
+        }
+
+        $DhcpServers = $dhServerNames | ForEach-Object {
+            [PSCustomObject]@{
+                Name = $_
+                ADIPv4Address = ''
+                CanonicalName = ''
+                Status = ($_ | Get-PingStatus)
+            }
         }
 
         $SelectedDhcpServer = $DhcpServers | Out-GridView -Title "Select DHCP Server for AU $AU" -OutputMode Single
@@ -2658,7 +2439,10 @@ try {
         $adGroupName = 'H' + $AU.PadLeft(4, '0')
         Write-Log "Debug: Validating group name '$adGroupName' for AU $AU"
         try {
-            $group = Get-ADObject -Filter "objectClass -eq 'group' -and name -eq '$adGroupName'" -Server $config.InternalDomains.PrimaryDomain -Credential $ADCredential -ErrorAction Stop
+            $adObjParams = @{ Filter = "objectClass -eq 'group' -and name -eq '$adGroupName'"; ErrorAction = 'Stop' }
+            if ($config -and $config.InternalDomains -and $config.InternalDomains.PrimaryDomain) { $adObjParams['Server'] = $config.InternalDomains.PrimaryDomain }
+            if ($ADCredential -and ($ADCredential -is [pscredential])) { $adObjParams['Credential'] = $ADCredential }
+            $group = Get-ADObject @adObjParams
             if (-not $group) { throw "Group '$adGroupName' not found." }
         } catch {
             Write-Host "Failed to query AD group '$adGroupName' for AU $AU. Error: $($_.Exception.Message)" -ForegroundColor Red
@@ -2823,7 +2607,7 @@ try {
             "10" = "Launch Mosio"
             "10b" = "Launch Idexx Vetconnect"
             "11" = "Update Admin Credentials"
-            "12" = "Device Connectivity Test"
+            "12" = "Search for Heska devices on network"
             "13" = "Launch ServiceNow for AU All Tickets"
             "12b" = "Graphical Ping to Fuse"
             "13b" = "Launch ServiceNow for AU Open Tickets"
@@ -2899,13 +2683,13 @@ try {
                         Write-Host "PoshRSJob module required for Woofware check." -ForegroundColor Red
                         continue
                     }
-                    Woofware-ErrorsCheck -AU $AU
+                    Get-WoofwareErrors -AU $AU
                 }
                 "2b" {
-                    Woofware-ErrorsCheckByUser -AU $AU
+                    Get-WoofwareErrorsByUser -AU $AU
                 }
                 "2c" {
-                    ApplicationHang-ErrorsCheck -AU $AU
+                    Get-ApplicationHangErrors -AU $AU
                 }
                 "3" {
                     Add-DHCPReservation -AU $AU
@@ -2934,7 +2718,7 @@ try {
                         }
                     }
                     try {
-                        User-LogonCheck -AU $AU -ErrorAction Stop
+                        Get-UserLogon -AU $AU -ErrorAction Stop
                     } catch {
                         Write-Host "Error in option 5: $($_.Exception.Message)" -ForegroundColor Red
                         Write-Log "Error in option 5: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
@@ -2987,7 +2771,7 @@ try {
                     Write-Host "10. Launch Mosio" -ForegroundColor White
                     Write-Host "10b. Launch Idexx Vetconnect" -ForegroundColor White
                     Write-Host "11. Update Admin Credentials: Update stored admin credentials." -ForegroundColor White
-                    Write-Host "12. Device Connectivity Test: Test connectivity to devices from DHCP." -ForegroundColor White
+                    Write-Host "12. Search for heska devices" -ForegroundColor White
                     Write-Host "12b. Graphical Ping to Fuse" -ForegroundColor White
                     Write-Host "13. Launch ServiceNow for AU All Tickets" -ForegroundColor White
                     Write-Host "13b. Launch ServiceNow for AU Open Tickets" -ForegroundColor White
@@ -3195,7 +2979,7 @@ try {
                 }
                 "16" {
                     # Run Angry IP Scanner on DHCP Scope
-                    Run-AngryIPOnScope -AU $AU
+                    Invoke-AngryIPScanOnScope -AU $AU
                 }
                 "19" {
                     # rdc
@@ -3259,11 +3043,36 @@ try {
         } while ($menuActive)
     }
 } catch {
-    Add-Content -Path $logPath -Value "[$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")] Error during script execution: $($_.Exception.Message)"
-    Write-Host "An error occurred during script execution. Check the log file at $logPath for details." -ForegroundColor Red
+    # Robust error capture: write to configured log if available, and always write a fallback file in %TEMP%
+    $timeStamp = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+    $fullError = "[$timeStamp] Error during script execution:`n$($_ | Out-String)`nException Message: $($_.Exception.Message)`nStackTrace:`n$($_.Exception.StackTrace)"
+
+    # Try to append to configured log path if available
+    if ($logPath) {
+        try { Add-Content -Path $logPath -Value $fullError -ErrorAction SilentlyContinue } catch {}
+    }
+
+    # Do not attempt to append to the live transcript file (it may be locked). Skip transcript append.
+
+    # Always write a fallback error file to %TEMP%
+    try {
+        $fallback = Join-Path $env:TEMP ("VCATechManager_error_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+        $fullError | Out-File -FilePath $fallback -Encoding UTF8 -Force
+        Write-Host "An error occurred during script execution. Error details written to: $fallback" -ForegroundColor Red
+    } catch {
+        # If even writing to %TEMP% fails, print the error to console as a last resort
+        Write-Host "An error occurred during script execution and error logging failed: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host $fullError -ForegroundColor Red
+    }
 }
 
 # Reset console colors on exit (optional)
+try {
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+} catch {
+    # Ignore if transcript isn't running
+}
+
 $host.UI.RawUI.BackgroundColor = "Black"
 $host.UI.RawUI.ForegroundColor = "Gray"
 Clear-Host

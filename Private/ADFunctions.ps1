@@ -7,6 +7,22 @@ function ADUserManagement {
 
     Write-ConditionalLog "Starting AD User Management for AU $AU"
 
+    # Load admin credentials for privileged operations (unlock/reset password)
+    $adminCredPath = "$global:ScriptRoot\Private\vcaadmin.xml"
+    $AdminCredential = $null
+    if (Test-Path $adminCredPath) {
+        try {
+            $AdminCredential = Import-Clixml -Path $adminCredPath
+            Write-ConditionalLog "Admin credentials loaded for AD user management"
+        } catch {
+            Write-Host "Failed to load admin credentials from $adminCredPath : $($_.Exception.Message). Privileged operations may fail." -ForegroundColor Red
+            Write-ConditionalLog "Failed to load admin credentials: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Host "Admin credentials file not found at $adminCredPath. Privileged operations may fail." -ForegroundColor Yellow
+        Write-ConditionalLog "Admin credentials file missing"
+    }
+
     $groupName = "H" + $AU.PadLeft(4, '0')  # e.g., 'H4048' for AU 4048
 
     try {
@@ -30,9 +46,13 @@ function ADUserManagement {
 
             switch ($action.ToLower()) {
                 'r' {
+                    if (-not $AdminCredential) {
+                        Write-Host "Admin credentials required for password reset. Please update via menu option 11." -ForegroundColor Red
+                        return
+                    }
                     $newPassword = Read-Host "Enter new password (will be converted to secure string)" -AsSecureString
                     if ($newPassword) {
-                        Set-ADAccountPassword -Identity $selectedUser.SamAccountName -NewPassword $newPassword -Credential $Credential -ErrorAction Stop
+                        Set-ADAccountPassword -Identity $selectedUser.SamAccountName -NewPassword $newPassword -Credential $AdminCredential -ErrorAction Stop
                         Write-Host "Password reset successfully for $($selectedUser.SamAccountName)." -ForegroundColor Green
                         Write-ConditionalLog "Password reset for $($selectedUser.SamAccountName) in AU $AU."
                     } else {
@@ -40,7 +60,11 @@ function ADUserManagement {
                     }
                 }
                 'u' {
-                    Unlock-ADAccount -Identity $selectedUser.SamAccountName -Credential $Credential -ErrorAction Stop
+                    if (-not $AdminCredential) {
+                        Write-Host "Admin credentials required for account unlock. Please update via menu option 11." -ForegroundColor Red
+                        return
+                    }
+                    Unlock-ADAccount -Identity $selectedUser.SamAccountName -Credential $AdminCredential -ErrorAction Stop
                     Write-Host "Account unlocked successfully for $($selectedUser.SamAccountName)." -ForegroundColor Green
                     Write-ConditionalLog "Account unlocked for $($selectedUser.SamAccountName) in AU $AU."
                 }
@@ -227,8 +251,8 @@ function ListADUsersAndCheckLogon {
             }
         } else {
             Write-Host "No active sessions found for $username. Falling back to logon event search." -ForegroundColor Yellow
-            Write-Log "No active sessions for $username, calling User-LogonCheck"
-            User-LogonCheck -AU $AU -Username $username -SkipPropertiesDisplay
+            Write-Log "No active sessions for $username, calling Get-UserLogon"
+            Get-UserLogon -AU $AU -Username $username -SkipPropertiesDisplay
         }
     } catch {
         Write-Host "Error in ListADUsersAndCheckLogon: $($_.Exception.Message)" -ForegroundColor Red

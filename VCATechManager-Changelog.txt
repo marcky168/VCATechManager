@@ -2,6 +2,12 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.53 - 2025-10-29
++ CODE QUALITY IMPROVEMENT: Fixed PSScriptAnalyzer warnings including unapproved verbs, unused variables, and parameter type issues for better code compliance and maintainability
++ DHCP DISCOVERY FIX: Added config loading code at script startup to resolve DHCP server discovery failures in options 1, 12, and 16 caused by uninitialized $config variable
++ MENU CLARIFICATION: Renamed option 12 from "Device Connectivity Test" to "Search for Heska devices" for better clarity
++ FUSE MONITORING UPDATE: Changed option 12b from using gping.exe to pinginfoviewer.exe for Fuse device monitoring
+
 v1.52 - 2025-10-28
 + SERVICENOW REMOVAL: Removed option 13c "Create ServiceNow Incident" due to unavailable API credentials; ServiceNow viewing options (13 and 13b) remain functional
 
