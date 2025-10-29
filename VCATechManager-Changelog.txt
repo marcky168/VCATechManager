@@ -2,6 +2,15 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.52 - 2025-10-28
++ SERVICENOW REMOVAL: Removed option 13c "Create ServiceNow Incident" due to unavailable API credentials; ServiceNow viewing options (13 and 13b) remain functional
+
+v1.51 - 2025-10-28
++ SERVICENOW CUSTOMIZATION: Updated option 13c defaults to Category="PMS" and AssignedGroup="VCA WOOFware Support"; added dynamic population of impacted user dropdown with hospital staff emails from AD
+
+v1.50 - 2025-10-28
++ SERVICENOW INTEGRATION: Added option 13c "Create ServiceNow Incident" using the GUI form for customized incident creation
+
 v1.49 - 2025-10-28
 + SECURITY ENHANCEMENT: Removed Private/github_pat.txt from repository tracking while keeping the file locally for secure credential management
 

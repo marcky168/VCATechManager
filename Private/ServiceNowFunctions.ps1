@@ -7,12 +7,12 @@ function New-ServiceNowGUI {
         [string]$ImpactedUser = "",
         [string[]]$ImpactedUserList = "",
         [string]$ReportedBy = "",
-        [string]$Category = "Hardware",
+        [string]$Category = "PMS",
         [string]$CIName = "",
         [string]$Impact = "3 - Low",
         [string]$Urgency = "2 - Medium",
         [string]$ContactType = "Monitoring",
-        [string]$AssignedGroup = "VCA Operations",
+        [string]$AssignedGroup = "VCA WOOFware Support",
         [string]$AssignedTo = "",
         [string]$ShortDescription = "",
         [string]$Description = "",
@@ -192,7 +192,7 @@ function New-ServiceNowGUI {
     ) | ForEach-Object {
         [void]$WPFcboAssignedGroup.items.Add($PSItem)
     }
-    $WPFcboAssignedGroup.Text = 'VCA Operations'
+    $WPFcboAssignedGroup.Text = 'VCA WOOFware Support'
 
     #Assigned To
     @(
@@ -228,7 +228,7 @@ function New-ServiceNowGUI {
                     Write-Host ($NewServiceNowParams | Out-String) -ForegroundColor Cyan
                     if ($Credential) { $NewServiceNowParams.Credential = $Credential }
 
-                    $WWAPIResult = New-ServiceNowIncident @NewServiceNowParams
+                    $WWAPIResult = New-VCAServiceNowIncident @NewServiceNowParams
 
                     if ($WWAPIResult) {
                         #$Form.Close()
@@ -251,65 +251,66 @@ function New-ServiceNowGUI {
     $async.Wait() | Out-Null
 }
 
-function New-ServiceNowIncident {
+function New-VCAServiceNowIncident {
     param (
         [string]$ImpactedUser = "",
         [string]$ReportedBy = "",
-        [string]$Category = "Inquiry/Help",
+        [string]$Category = "PMS",
         [string]$CIName = "",
         [string]$Impact = "3 - Low",
         [string]$Urgency = "2 - Medium",
         [string]$ContactType = "Monitoring",
-        [string]$AssignedGroup = "Operations",
+        [string]$AssignedGroup = "VCA WOOFware Support",
         [string]$AssignedTo = "",
         [string]$ShortDescription = "",
         [string]$Description = "",
-        [string]$SnowApiUri = "vca.service-now.com",
+        [string]$SnowApiUri = "marsvh.service-now.com",
         [pscredential]$Credential
     )
 
     begin {
-        if (-not $Credential) { $Credential = Get-Credential -Message "ServiceNow API Credentials:" -UserName 'API.Operations' }
         if ($SnowApiUri -notlike '*.service-now.com') { $SnowApiUri = "$SnowApiUri.service-now.com" }
         $SnowApiUri = $SnowApiUri -replace 'http://',''
+
+        # Load stored credential if exists and none provided
+        if (-not $Credential) {
+            $storedCred = Get-StoredCredential -Target vcasnowapi -ErrorAction SilentlyContinue
+            if ($storedCred) {
+                $Credential = New-Object System.Management.Automation.PSCredential ($storedCred.UserName, $storedCred.Password)
+                Write-Host "Loaded stored ServiceNow API credentials." -ForegroundColor Green
+            } else {
+                $Credential = Get-Credential -Message "ServiceNow API Credentials:" -UserName 'API.Operations'
+            }
+        }
     }
     process {
         if ($Credential) {
-            $WWAPIUser = $Credential.GetNetworkCredential().UserName
-            $WWAPIPW = $Credential.GetNetworkCredential().Password
-
-            $Headers = @{ Authorization = "Basic " + [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes("$WWAPIUser`:$WWAPIPW")) }
-
-            $ObjPayload = @{
-                ImpactedUser     = $ImpactedUser #String email address of SNOW user:Default Guest
-                ReportedBy       = $ReportedBy #String email address of SNOW user:Default Guest
-
-                Category         = $Category #String accepted values:"hardware";"inquiry";"network";"software";"database";"security":Default "inquiry"
-                CIName           = $CIName #String:Name of CI:Default "Hardware - Other"
-                Impact           = $Impact #Numeric:Range 1 to 3:Default 3
-                Urgency          = $Urgency #Numeric:Range 1 to 3:Default 3
-
-                ContactType      = $ContactType #String: accepted values: "messenger";"email";"phone";"self-service";"monitoring";"voice mail";"walk-in/direct-contact":DEFAULT "monitoring"
-                AssignedGroup    = $AssignedGroup #String:Name of SNOW Group:Default "Support Alerts"
-                AssignedTo       = $AssignedTo #Nameof of a member of SNOW group:Default NULL if AssignedTo user is not a member of the AssignedGroup
-
-                ShortDescription = $ShortDescription #String: Default value "Short Description is MISSING"
-                Description      = $Description #String: Default value "Description is MISSING"
-            }
-            $ObjJson = $ObjPayload | ConvertTo-Json
-            try {
-                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-                $WWAPIResult = (Invoke-RestMethod -Uri "https://$SnowApiUri/api/vcaan/api_operations/open" -Method Post -Body $ObjJson -ContentType 'application/json' -Headers $Headers -ErrorAction Stop).result
-
-                $WWAPIResultObj = [pscustomobject]@{
-                    incident = $WWAPIResult.incident
-                    sys_id   = $WWAPIResult.sys_id
-                    url      = "https://$SnowApiUri/nav_to.do?uri=%2Fincident.do%3Fsys_id%3D$($WWAPIResult.sys_id)%26sysparm_stack%3D%26sysparm_view%3Ddefault%26sysparm_view_forced%3Dtrue"
+            if (Get-Module -ListAvailable -Name ServiceNow) {
+                Import-Module ServiceNow
+                try {
+                    # Create session
+                    $session = New-ServiceNowSession -Url $SnowApiUri -Credential $Credential -PassThru
+                    # Create custom fields hashtable
+                    $customFields = @{
+                        u_impacted_user = $ImpactedUser
+                        impact = $Impact.Split(' - ')[0]
+                        urgency = $Urgency.Split(' - ')[0]
+                        contact_type = $ContactType
+                        opened_by = $ReportedBy
+                        assigned_to = $AssignedTo
+                    }
+                    $incident = New-ServiceNowIncident -Caller $ReportedBy -ShortDescription $ShortDescription -Description $Description -AssignmentGroup $AssignedGroup -Category $Category -ConfigurationItem $CIName -CustomField $customFields -ServiceNowSession $session -PassThru
+                    $WWAPIResultObj = [pscustomobject]@{
+                        incident = $incident.number
+                        sys_id   = $incident.sys_id
+                        url      = "https://$SnowApiUri/nav_to.do?uri=%2Fincident.do%3Fsys_id%3D$($incident.sys_id)%26sysparm_stack%3D%26sysparm_view%3Ddefault%26sysparm_view_forced%3Dtrue"
+                    }
+                    Write-Output $WWAPIResultObj
+                } catch {
+                    Write-Warning "ServiceNow module creation failed: $($_.Exception.Message)"
                 }
-                Write-Output $WWAPIResultObj
-            }
-            catch {
-                Write-Warning $Error[0].Exception.Message
+            } else {
+                Write-Warning "ServiceNow module not installed. Please install it with: Install-Module -Name ServiceNow -Scope CurrentUser"
             }
         }
     }
