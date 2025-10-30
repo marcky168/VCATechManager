@@ -2,6 +2,12 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.54 - 2025-10-29
++ DEPLOYMENT PACKAGE FEATURE: Added hidden 'zip' command at AU prompt to create complete deployment packages containing all script files, modules, and data files (including CSV folder) for easy distribution and installation
++ ZIP FUNCTIONALITY: Creates timestamped zip files (VCATechManager_v1.54_YYYYMMDD_HHMMSS.zip) with all necessary components while excluding only sensitive authentication credentials
++ DEPLOYMENT SECURITY: Zip packages include hospital master data, telecom information, and configuration templates while maintaining security by excluding credential files
++ USER EXPERIENCE: Updated help menu and prompts to document the new zip deployment feature
+
 v1.53 - 2025-10-29
 + CODE QUALITY IMPROVEMENT: Fixed PSScriptAnalyzer warnings including unapproved verbs, unused variables, and parameter type issues for better code compliance and maintainability
 + DHCP DISCOVERY FIX: Added config loading code at script startup to resolve DHCP server discovery failures in options 1, 12, and 16 caused by uninitialized $config variable
