@@ -2,6 +2,9 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.55 - 2025-10-30
++ AUTO-UPDATE TESTING: Manual version bump to 1.55 to test the auto-update mechanism and verify that all version files and changelog are properly synchronized during updates
+
 v1.54 - 2025-10-29
 + DEPLOYMENT PACKAGE FEATURE: Added hidden 'zip' command at AU prompt to create complete deployment packages containing all script files, modules, and data files (including CSV folder) for easy distribution and installation
 + ZIP FUNCTIONALITY: Creates timestamped zip files (VCATechManager_v1.54_YYYYMMDD_HHMMSS.zip) with all necessary components while excluding only sensitive authentication credentials
