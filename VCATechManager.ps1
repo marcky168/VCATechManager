@@ -2402,11 +2402,85 @@ try {
         # Display tool name and version at top with spacing
         Write-Host "`n`n  VCATechManager v$version`n" -ForegroundColor Magenta
 
-        Write-Host "Enter the AU number (or 'exit' to quit): " -NoNewline -ForegroundColor Cyan
+        Write-Host "Enter the AU number (or 'zip' to create deployment package, 'exit' to quit): " -NoNewline -ForegroundColor Cyan
         $AU = (Read-Host).Trim()
         
         if ($AU -eq 'exit') {
             $exitScript = $true
+            continue
+        }
+
+        # Special zip command to create deployment package
+        if ($AU -eq 'zip') {
+            Write-Host "Creating deployment zip package..." -ForegroundColor Green
+            
+            try {
+                $zipName = "VCATechManager_v${version}_$(Get-Date -Format 'yyyyMMdd_HHmmss').zip"
+                $zipPath = Join-Path $PSScriptRoot $zipName
+                
+                # Define files and directories to include
+                $includeItems = @(
+                    "VCATechManager.ps1",
+                    "VCATechManager.cmd", 
+                    "README.md",
+                    "VCATechManager-Changelog.txt",
+                    "version.txt",
+                    "Private/"
+                )
+                
+                # Create temporary directory for zip contents
+                $tempDir = Join-Path $env:TEMP "VCATechManager_ZipTemp_$(Get-Random)"
+                New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+                
+                # Copy files and directories, excluding sensitive data
+                foreach ($item in $includeItems) {
+                    $sourcePath = Join-Path $PSScriptRoot $item
+                    if (Test-Path $sourcePath) {
+                        if ($item -eq "Private/") {
+                            # Copy Private directory but exclude sensitive files
+                            $privateTemp = Join-Path $tempDir "Private"
+                            Copy-Item -Path $sourcePath -Destination $privateTemp -Recurse -Force
+                            
+                            # Remove sensitive files and directories
+                            $sensitivePaths = @(
+                                "*.xml",  # credential files
+                                "*.json", # config files  
+                                "github_pat.txt"
+                            )
+                            
+                            foreach ($sensitive in $sensitivePaths) {
+                                $sensitiveFullPath = Join-Path $privateTemp $sensitive
+                                if (Test-Path $sensitiveFullPath) {
+                                    Remove-Item -Path $sensitiveFullPath -Recurse -Force -ErrorAction SilentlyContinue
+                                }
+                            }
+                        } else {
+                            Copy-Item -Path $sourcePath -Destination $tempDir -Force
+                        }
+                    }
+                }
+                
+                # Create zip file
+                if (Get-Command Compress-Archive -ErrorAction SilentlyContinue) {
+                    Compress-Archive -Path "$tempDir\*" -DestinationPath $zipPath -Force
+                } else {
+                    # Fallback for older PowerShell versions
+                    Add-Type -AssemblyName System.IO.Compression.FileSystem
+                    [System.IO.Compression.ZipFile]::CreateFromDirectory($tempDir, $zipPath)
+                }
+                
+                # Clean up temp directory
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+                
+                Write-Host "Deployment package created: $zipPath" -ForegroundColor Green
+                Write-Host "Package includes script files, modules, and data files" -ForegroundColor Cyan
+                
+            } catch {
+                Write-Host "Error creating zip package: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Log "Error creating zip package: $($_.Exception.Message)"
+            }
+            
+            Start-Sleep -Seconds 3
             continue
         }
 
@@ -2760,6 +2834,11 @@ try {
                 }
                 "8" {
                     Write-Host "Help Menu:" -ForegroundColor Green
+                    Write-Host "Special Commands:" -ForegroundColor Yellow
+                    Write-Host "  'zip' at AU prompt: Creates a deployment zip package with script files and data" -ForegroundColor White
+                    Write-Host "  'exit' at AU prompt: Exits the script" -ForegroundColor White
+                    Write-Host "" -ForegroundColor White
+                    Write-Host "Menu Options:" -ForegroundColor Yellow
                     Write-Host "1. Abaxis MAC Address Search: Searches for Abaxis device MACs in DHCP leases and reservations." -ForegroundColor White
                     Write-Host "2. Woofware Errors Check: Checks application logs for Woofware errors on NS servers." -ForegroundColor White
                     Write-Host "2b. Woofware Errors Check by User: Checks Woofware errors filtered by selected user on NS servers." -ForegroundColor White
