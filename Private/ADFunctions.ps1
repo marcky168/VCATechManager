@@ -52,9 +52,27 @@ function ADUserManagement {
                     }
                     $newPassword = Read-Host "Enter new password (will be converted to secure string)" -AsSecureString
                     if ($newPassword) {
-                        Set-ADAccountPassword -Identity $selectedUser.SamAccountName -NewPassword $newPassword -Credential $AdminCredential -ErrorAction Stop
-                        Write-Host "Password reset successfully for $($selectedUser.SamAccountName)." -ForegroundColor Green
-                        Write-ConditionalLog "Password reset for $($selectedUser.SamAccountName) in AU $AU."
+                        try {
+                            Set-ADAccountPassword -Identity $selectedUser.SamAccountName -NewPassword $newPassword -Credential $AdminCredential -ErrorAction Stop
+                            Write-Host "Password reset successfully for $($selectedUser.SamAccountName)." -ForegroundColor Green
+                            Write-ConditionalLog "Password reset for $($selectedUser.SamAccountName) in AU $AU."
+                        } catch {
+                            Write-Host "Error resetting password: $($_.Exception.Message)" -ForegroundColor Red
+                            Write-ConditionalLog "Password reset error for $($selectedUser.SamAccountName): $($_.Exception.Message)"
+                            if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
+                                Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
+                                $updateCred = Read-Host
+                                if ($updateCred.ToLower() -eq 'y') {
+                                    $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
+                                    if ($newCred) {
+                                        $newCred | Export-Clixml -Path "$global:ScriptRoot\Private\vcaadmin.xml" -Force
+                                        Write-Host "Admin credentials updated." -ForegroundColor Green
+                                        Write-ConditionalLog "Admin credentials updated due to AD user management error"
+                                        $AdminCredential = $newCred
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         Write-Host "No password entered. Cancelled." -ForegroundColor Yellow
                     }
@@ -64,9 +82,27 @@ function ADUserManagement {
                         Write-Host "Admin credentials required for account unlock. Please update via menu option 11." -ForegroundColor Red
                         return
                     }
-                    Unlock-ADAccount -Identity $selectedUser.SamAccountName -Credential $AdminCredential -ErrorAction Stop
-                    Write-Host "Account unlocked successfully for $($selectedUser.SamAccountName)." -ForegroundColor Green
-                    Write-ConditionalLog "Account unlocked for $($selectedUser.SamAccountName) in AU $AU."
+                    try {
+                        Unlock-ADAccount -Identity $selectedUser.SamAccountName -Credential $AdminCredential -ErrorAction Stop
+                        Write-Host "Account unlocked successfully for $($selectedUser.SamAccountName)." -ForegroundColor Green
+                        Write-ConditionalLog "Account unlocked for $($selectedUser.SamAccountName) in AU $AU."
+                    } catch {
+                        Write-Host "Error unlocking account: $($_.Exception.Message)" -ForegroundColor Red
+                        Write-ConditionalLog "Account unlock error for $($selectedUser.SamAccountName): $($_.Exception.Message)"
+                        if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
+                            Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
+                            $updateCred = Read-Host
+                            if ($updateCred.ToLower() -eq 'y') {
+                                $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
+                                if ($newCred) {
+                                    $newCred | Export-Clixml -Path "$global:ScriptRoot\Private\vcaadmin.xml" -Force
+                                    Write-Host "Admin credentials updated." -ForegroundColor Green
+                                    Write-ConditionalLog "Admin credentials updated due to AD user management error"
+                                    $AdminCredential = $newCred
+                                }
+                            }
+                        }
+                    }
                 }
                 'c' {
                     Write-Host "Operation cancelled." -ForegroundColor Yellow
@@ -82,6 +118,19 @@ function ADUserManagement {
     } catch {
         Write-Host "Error fetching AD users for group $($groupName): $($_.Exception.Message)" -ForegroundColor Red
         Write-ConditionalLog "AD user fetch error for ${groupName}: $($_.Exception.Message)"
+        if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
+            Write-Host "This appears to be a credential issue. Would you like to update the AD credentials? (y/n)" -ForegroundColor Yellow
+            $updateCred = Read-Host
+            if ($updateCred.ToLower() -eq 'y') {
+                $newCred = Get-Credential -Message "Enter AD domain credentials (e.g., vcaantech\youruser)"
+                if ($newCred) {
+                    $newCred | Export-Clixml -Path "$global:ScriptRoot\Private\vcaad.xml" -Force
+                    Write-Host "AD credentials updated." -ForegroundColor Green
+                    Write-ConditionalLog "AD credentials updated due to AD user management error"
+                    $Credential = $newCred
+                }
+            }
+        }
     }
 }
 
@@ -97,7 +146,7 @@ function ListADUsersAndCheckLogon {
             Write-Host "AD credentials not loaded. Prompting for credentials..." -ForegroundColor Yellow
             $ADCredential = Get-Credential -Message "Enter AD domain credentials (e.g., vcaantech\youruser)"
             if ($ADCredential) {
-                $ADCredential | Export-Clixml -Path $credPathAD -Force
+                $ADCredential | Export-Clixml -Path $credentialPathAD -Force
                 Write-Host "AD credentials saved." -ForegroundColor Green
                 Write-Log "AD credentials saved during function call"
             } else {
@@ -302,11 +351,11 @@ Function Get-ADUserLockouts {
         else {
             $output = $events
         }
-        foreach ($event in $output) {
+        foreach ($lockoutEvent in $output) {
             [pscustomobject]@{
-                UserName       = $event.Properties[0].Value
-                CallerComputer = $event.Properties[1].Value
-                TimeStamp      = $event.TimeCreated
+                UserName       = $lockoutEvent.Properties[0].Value
+                CallerComputer = $lockoutEvent.Properties[1].Value
+                TimeStamp      = $lockoutEvent.TimeCreated
             }
         }
     }

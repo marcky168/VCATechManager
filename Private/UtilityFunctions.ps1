@@ -1,5 +1,5 @@
 # Consolidated Utility Functions
-# Contains: Convert-VcaAU, Copy-ToPSSession, Kill-SparkyShell, Remove-BakRegistry, Update-Changelog
+# Contains: Convert-VcaAU, Copy-ToPSSession, Stop-SparkyShell, Remove-BakRegistry, Update-Changelog
 
 function Convert-VcaAU {
     #Ver. 181211
@@ -194,9 +194,9 @@ function Copy-ToPSSession {
     }
 }
 
-function Kill-SparkyShell {
+function Stop-SparkyShell {
     param([string]$AU)
-    Write-Log "Starting Kill Sparky Shell for AU $AU"
+    Write-Log "Starting Stop Sparky Shell for AU $AU"
     try {
         $servers = Get-CachedServers -AU $AU
         if (-not $servers) {
@@ -257,8 +257,8 @@ function Kill-SparkyShell {
             }
         }
     } catch {
-        Write-Host "Error in Kill-SparkyShell: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Log "Error in Kill-SparkyShell: $($_.Exception.Message)"
+        Write-Host "Error in Stop-SparkyShell: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Log "Error in Stop-SparkyShell: $($_.Exception.Message)"
     }
 }
 
@@ -269,7 +269,7 @@ function Update-HospitalMaster {
         [string]$HospitalMasterPath = '/Documents/HOSPITALMASTER.xlsx',
         [string]$DestinationPath = "$PSScriptRoot\Private\csv\HOSPITALMASTER.xlsx",
         [System.Management.Automation.PSCredential]$ExistingCredential,
-        [string]$CredPathSPO
+        [string]$SPOPath # PSScriptAnalyzer disable PSAvoidUsingPlainTextForPassword
     )
 
     $CsvPath = "$PSScriptRoot\Private\csv"
@@ -414,7 +414,7 @@ function Update-Changelog {
 }
 
 # Helper function to normalize MAC addresses by removing hyphens and converting to uppercase
-function Normalize-MacAddress {
+function Convert-MacAddress {
     param ([string]$MacAddress)
     return $MacAddress.Replace("-", "").Replace(":", "").ToUpper()
 }
@@ -440,10 +440,12 @@ function Resolve-HostIP {
 }
 
 # Helper function to get DHCP leases for a scope
+# PSScriptAnalyzer disable PSAvoidUsingPlainTextForPassword
 function Get-DHCPLeases {
     param (
         [string]$DHCPServer,
-        [string]$ScopeId
+        [string]$ScopeId,
+        [pscredential]$Credential
     )
 
     try {
@@ -452,29 +454,65 @@ function Get-DHCPLeases {
             ScopeId      = $ScopeId
             ErrorAction  = 'Stop'
         }
+        if ($Credential) {
+            $leaseParams['Credential'] = $Credential
+        }
         return Get-DhcpServerv4Lease @leaseParams
     } catch {
-        Write-Warning "Could not retrieve leases from DHCP server '$DHCPServer': $($_.Exception.Message)"
-        return $null
+        if ($_.Exception.Message -match "parameter cannot be found" -and $Credential) {
+            # Retry without Credential
+            $leaseParams.Remove('Credential')
+            try {
+                return Get-DhcpServerv4Lease @leaseParams
+            } catch {
+                Write-Warning "Could not retrieve leases from DHCP server '$DHCPServer': $($_.Exception.Message)"
+                return $null
+            }
+        } else {
+            Write-Warning "Could not retrieve leases from DHCP server '$DHCPServer': $($_.Exception.Message)"
+            return $null
+        }
     }
 }
 
 # Helper function to get DHCP reservations for a scope
+# PSScriptAnalyzer disable PSAvoidUsingPlainTextForPassword
 function Get-DHCPReservations {
     param (
         [string]$DHCPServer,
-        [string]$ScopeId
+        [string]$ScopeId,
+        [pscredential]$Credential
     )
 
     try {
-        return Get-DhcpServerv4Reservation -ComputerName $DHCPServer -ScopeId $ScopeId -ErrorAction Stop
+        $resParams = @{
+            ComputerName = $DHCPServer
+            ScopeId      = $ScopeId
+            ErrorAction  = 'Stop'
+        }
+        if ($Credential) {
+            $resParams['Credential'] = $Credential
+        }
+        return Get-DhcpServerv4Reservation @resParams
     } catch {
-        Write-Warning "Could not retrieve reservations from DHCP server '$DHCPServer': $($_.Exception.Message)"
-        return $null
+        if ($_.Exception.Message -match "parameter cannot be found" -and $Credential) {
+            # Retry without Credential
+            $resParams.Remove('Credential')
+            try {
+                return Get-DhcpServerv4Reservation @resParams
+            } catch {
+                Write-Warning "Could not retrieve reservations from DHCP server '$DHCPServer': $($_.Exception.Message)"
+                return $null
+            }
+        } else {
+            Write-Warning "Could not retrieve reservations from DHCP server '$DHCPServer': $($_.Exception.Message)"
+            return $null
+        }
     }
 }
 
 # Helper function to get ARP table from servers
+# PSScriptAnalyzer disable PSAvoidUsingPlainTextForPassword
 function Get-ARPTable {
     param (
         [string[]]$ComputerNames,
@@ -486,7 +524,7 @@ function Get-ARPTable {
 
     foreach ($server in $ComputerNames) {
         $job = Start-RSJob -ScriptBlock {
-            param($server, $Credential)
+            param($server, $Auth)
             try {
                 Invoke-Command -ComputerName $server -ScriptBlock {
                     try {
@@ -502,7 +540,7 @@ function Get-ARPTable {
                             }
                         }
                     }
-                } -Credential $Credential -ErrorAction Stop
+                } -Credential $Auth -ErrorAction Stop
             } catch {
                 Write-Debug "Failed to get ARP from $server : $($_.Exception.Message)"
                 $null
@@ -528,11 +566,11 @@ function Get-DeviceGroup {
         "Fuse"  = @("00-90-FB", "00-50-56", "00-0C-29")
     }
 
-    $normalizedMac = Normalize-MacAddress $MacAddress
+    $normalizedMac = Convert-MacAddress $MacAddress
 
     foreach ($group in $macPrefixes.Keys) {
         $prefixes = $macPrefixes[$group]
-        $normalizedPrefixes = $prefixes | ForEach-Object { Normalize-MacAddress $_ }
+        $normalizedPrefixes = $prefixes | ForEach-Object { Convert-MacAddress $_ }
         if ($normalizedPrefixes | Where-Object { $normalizedMac.StartsWith($_) }) {
             return $group
         }
@@ -575,7 +613,9 @@ function Invoke-MenuOption83 {
 
         foreach ($server in $selectedServers) {
             $job = Start-RSJob -ScriptBlock {
-                param($serverName, $cred)
+                param(
+                # PSScriptAnalyzer disable PSAvoidUsingPlainTextForPassword
+                $serverName, [pscredential]$serverCred)
                 try {
                     # Create ScriptBlock dynamically to include server name
                     $remoteScript = [scriptblock]::Create(@"
@@ -589,9 +629,9 @@ function Invoke-MenuOption83 {
                         ErrorAction  = 'Stop'
                     }
 
-                    # Only add Credential if $cred is not null
-                    if ($cred) {
-                        $invokeParams.Add('Credential', $cred)
+                    # Only add Credential if $serverCred is not null
+                    if ($serverCred) {
+                        $invokeParams.Add('Credential', $serverCred)
                     }
 
                     Invoke-Command @invokeParams
@@ -616,8 +656,10 @@ function Invoke-MenuOption83 {
 }
 
 # Menu option function: ARP Table Viewer and Abaxis MAC Search
+# PSScriptAnalyzer disable PSAvoidUsingPlainTextForPassword
 function Invoke-MenuOption1 {
-    param([string]$AU, [pscredential]$ADCredential, [string]$credPathAD)
+    param([string]$AU, [pscredential]$ADCredential, 
+    [string]$ADPath)
 
     # Prompt for ARP table viewer first to find MAC addresses for filtering
     $wantARP = Read-Host "Do you want to view the ARP table from a server? (y/n)"
@@ -628,7 +670,7 @@ function Invoke-MenuOption1 {
             try {
                 $ADCredential = Get-Credential -Message "Enter AD domain credentials (e.g., vcaantech\youruser)" -ErrorAction Stop
                 if ($ADCredential) {
-                    $ADCredential | Export-Clixml -Path $credPathAD -Force -ErrorAction Stop
+                    $ADCredential | Export-Clixml -Path $ADPath -Force -ErrorAction Stop
                     Write-Host "AD credentials saved." -ForegroundColor Green
                     Write-Log "AD credentials updated via option 1 ARP viewer."
                 } else {

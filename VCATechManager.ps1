@@ -2,7 +2,7 @@
 # --- END Trusted Site Fix ---
 
 # Set version
-$version = "1.55"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+$version = "1.56"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
 
 # Load configuration from JSON file
 $configPath = "$PSScriptRoot\Private\config.json"
@@ -186,8 +186,8 @@ function Get-ADSecureCredential {
 }
 
 # Load credentials early with centralized function
-$credPathAD = "$PSScriptRoot\Private\vcaadcred.xml"
-$ADCredential = Get-ADSecureCredential -CredPath $credPathAD
+$credentialPathAD = "$PSScriptRoot\Private\vcaadcred.xml"
+$ADCredential = Get-ADSecureCredential -CredPath $credentialPathAD
 
 # If on domain and no explicit creds, set to null to use default context
 if ($isDomainJoined -and -not $ADCredential) {
@@ -364,7 +364,7 @@ function Get-CachedServers {
 
             if ($_.Exception.Message -match "access denied|permission|credential" -and $retryCount -lt $maxRetries) {
                 Write-Status "Access denied with current credentials. Prompting for alternative AD credentials..." Yellow
-                $Credential = Get-ADSecureCredential -CredPath $credPathAD -ForcePrompt
+                $Credential = Get-ADSecureCredential -CredPath $credentialPathAD -ForcePrompt
             } else {
                 Write-Status "Max retries reached or non-credential error. Skipping server query." Red
                 return @()
@@ -755,6 +755,24 @@ try {
         param([string]$AU)
         Write-Log "Starting Abaxis MAC Address Search for AU $AU"
 
+        # Load admin credentials for DHCP server access
+        $adminCredPath = "$PSScriptRoot\Private\vcaadmin.xml"
+        $Credential = $null
+        if (Test-Path $adminCredPath) {
+            try {
+                $Credential = Import-Clixml -Path $adminCredPath
+                Write-Log "Admin credentials loaded for Abaxis search in AU $AU"
+            } catch {
+                Write-Host "Failed to load admin credentials: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Log "Failed to load admin credentials for Abaxis: $($_.Exception.Message)"
+                $Credential = $null
+            }
+        } else {
+            Write-Host "Admin credentials not found. Please update via menu option 11." -ForegroundColor Yellow
+            Write-Log "Admin credentials file missing for Abaxis search in AU $AU"
+            $Credential = $null
+        }
+
         # Cache for IP resolutions (optimization: avoid repeated DNS calls)
         $ipCache = @{}
 
@@ -780,10 +798,23 @@ try {
             Write-Progress -Activity "Retrieving DHCP leases" -Status "Connecting to DHCP servers..." -PercentComplete 50
             foreach ($dhcpServer in $dhcpServers) {
                 try {
-                    $serverLeases = Get-DHCPLeases -DHCPServer $dhcpServer -ScopeId $scopeId -ErrorAction Stop
+                    $serverLeases = Get-DHCPLeases -DHCPServer $dhcpServer -ScopeId $scopeId -Credential $Credential -ErrorAction Stop
                     if ($serverLeases) { $leases += $serverLeases }
                 } catch {
                     Write-Status "WARNING: Could not retrieve leases from DHCP server '$dhcpServer': $($_.Exception.Message)" Yellow
+                    if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
+                        Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
+                        $updateCred = Read-Host
+                        if ($updateCred.ToLower() -eq 'y') {
+                            $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
+                            if ($newCred) {
+                                $newCred | Export-Clixml -Path $adminCredPath -Force
+                                Write-Host "Admin credentials updated." -ForegroundColor Green
+                                Write-Log "Admin credentials updated due to DHCP error in Abaxis search"
+                                $Credential = $newCred
+                            }
+                        }
+                    }
                 }
             }
             if (-not $leases) { Write-Host "No leases found for scope '$scopeId'." }
@@ -800,10 +831,10 @@ try {
 
         foreach ($group in $macPrefixes.Keys) {
             $prefixes = $macPrefixes[$group]
-            $normalizedPrefixes = $prefixes | ForEach-Object { Normalize-MacAddress $_ }
+            $normalizedPrefixes = $prefixes | ForEach-Object { Convert-MacAddress $_ }
 
             $matchingLeases = $leases | Where-Object {
-                $normalizedClientId = Normalize-MacAddress $_.ClientId
+                $normalizedClientId = Convert-MacAddress $_.ClientId
                 $normalizedPrefixes | Where-Object { $normalizedClientId.StartsWith($_) }
             }
 
@@ -822,10 +853,23 @@ try {
         if ($dhcpServers -and $dhcpServers.Count -gt 0) {
             foreach ($dhcpServer in $dhcpServers) {
                 try {
-                    $serverRes = Get-DHCPReservations -DHCPServer $dhcpServer -ScopeId $scopeId -ErrorAction Stop
+                    $serverRes = Get-DHCPReservations -DHCPServer $dhcpServer -ScopeId $scopeId -Credential $Credential -ErrorAction Stop
                     if ($serverRes) { $reservations += $serverRes }
                 } catch {
                     Write-Status "WARNING: Could not retrieve reservations from DHCP server '$dhcpServer': $($_.Exception.Message)" Yellow
+                    if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
+                        Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
+                        $updateCred = Read-Host
+                        if ($updateCred.ToLower() -eq 'y') {
+                            $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
+                            if ($newCred) {
+                                $newCred | Export-Clixml -Path $adminCredPath -Force
+                                Write-Host "Admin credentials updated." -ForegroundColor Green
+                                Write-Log "Admin credentials updated due to DHCP error in Abaxis search"
+                                $Credential = $newCred
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1780,6 +1824,23 @@ try {
 
         Write-Log "Starting Add DHCP Reservation for AU $AU"
 
+        # Load admin credentials for DHCP server access
+        $adminCredPath = "$PSScriptRoot\Private\vcaadmin.xml"
+        if (Test-Path $adminCredPath) {
+            try {
+                $Credential = Import-Clixml -Path $adminCredPath
+                Write-Log "Admin credentials loaded for DHCP reservation in AU $AU"
+            } catch {
+                Write-Host "Failed to load admin credentials from $adminCredPath : $($_.Exception.Message). DHCP operations may fail." -ForegroundColor Red
+                Write-Log "Failed to load admin credentials for DHCP: $($_.Exception.Message)"
+                $Credential = $null
+            }
+        } else {
+            Write-Host "Admin credentials file not found at $adminCredPath. Update via menu option 11. DHCP operations may fail." -ForegroundColor Yellow
+            Write-Log "Admin credentials file missing for DHCP reservation in AU $AU"
+            $Credential = $null
+        }
+
         $macSuffix = Read-Host "Enter MAC suffix after 00-90-FB (e.g., XX-XX-XX)"
         if ($macSuffix -notmatch '^([0-9A-Fa-f]{2}[-:]){2}[0-9A-Fa-f]{2}$') {
             Write-Host "Invalid MAC suffix format. Must be XX-XX-XX." -ForegroundColor Red
@@ -1829,23 +1890,36 @@ try {
             $i++
             Write-Progress -Activity "Processing DHCP servers" -Status "Server $i of $totalServers : $Server" -PercentComplete (($i / $totalServers) * 100)
             try {
-                $ExistingReservation = Get-DhcpServerv4Reservation -ComputerName $Server -IPaddress $ReservationIP -ErrorAction Stop
+                $ExistingReservation = Get-DhcpServerv4Reservation -ComputerName $Server -IPaddress $ReservationIP -Credential $Credential -ErrorAction Stop
                 if ($ExistingReservation) {
                     $Confirm = Read-Host "A DHCP reservation with IP address $ReservationIP and scope $ScopeId already exists on server $Server. Do you want to delete it? (y/n)"
                     if ($Confirm.ToLower() -eq "y") {
-                        Remove-DhcpServerv4Reservation -ComputerName $Server -IPAddress $ReservationIP -ErrorAction Stop
+                        Remove-DhcpServerv4Reservation -ComputerName $Server -IPAddress $ReservationIP -Credential $Credential -ErrorAction Stop
                         $results += "Deleted DHCP reservation for IP address $ReservationIP and scope $ScopeId on server $Server"
-                        Add-DhcpServerv4Reservation -ComputerName $Server -ScopeId $ScopeId -IPAddress $ReservationIP -ClientId $MACAddress -Description "Reservation for AU $AU Fuse"
+                        Add-DhcpServerv4Reservation -ComputerName $Server -ScopeId $ScopeId -IPAddress $ReservationIP -ClientId $MACAddress -Description "Reservation for AU $AU Fuse" -Credential $Credential
                         $results += "Added DHCP reservation for IP address $ReservationIP to scope $ScopeId on server $Server"
                     }
                 } else {
-                    Add-DhcpServerv4Reservation -ComputerName $Server -ScopeId $ScopeId -IPAddress $ReservationIP -ClientId $MACAddress -Description "Reservation for AU $AU Fuse"
+                    Add-DhcpServerv4Reservation -ComputerName $Server -ScopeId $ScopeId -IPAddress $ReservationIP -ClientId $MACAddress -Description "Reservation for AU $AU Fuse" -Credential $Credential
                     $results += "Added DHCP reservation for IP address $ReservationIP to scope $ScopeId on server $Server"
                 }
             } catch {
                 Write-Host "Error with DHCP on $Server : $($_.Exception.Message)" -ForegroundColor Red
                 Write-Log "DHCP error on $Server : $($_.Exception.Message)"
                 $results += "Error with DHCP on $Server : $($_.Exception.Message)"
+                if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
+                    Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
+                    $updateCred = Read-Host
+                    if ($updateCred.ToLower() -eq 'y') {
+                        $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
+                        if ($newCred) {
+                            $newCred | Export-Clixml -Path "$PSScriptRoot\Private\vcaadmin.xml" -Force
+                            Write-Host "Admin credentials updated." -ForegroundColor Green
+                            Write-Log "Admin credentials updated due to DHCP error in Add DHCP Reservation"
+                            $Credential = $newCred
+                        }
+                    }
+                }
             }
         }
         Write-Progress -Activity "Processing DHCP servers" -Completed
@@ -2297,6 +2371,19 @@ try {
         }
         catch {
             Write-Warning $_.Exception.Message
+            if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
+                Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
+                $updateCred = Read-Host
+                if ($updateCred.ToLower() -eq 'y') {
+                    $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
+                    if ($newCred) {
+                        $newCred | Export-Clixml -Path "$PSScriptRoot\Private\vcaadmin.xml" -Force
+                        Write-Host "Admin credentials updated." -ForegroundColor Green
+                        Write-Log "Admin credentials updated due to DHCP error in Angry IP Scanner"
+                        $Credential = $newCred
+                    }
+                }
+            }
         }
     }
 
@@ -2684,6 +2771,8 @@ try {
             "12" = "Search for Heska devices on network"
             "13" = "Launch ServiceNow for AU All Tickets"
             "12b" = "Graphical Ping to Fuse"
+            "12c" = "Show all DHCP leases and reservations"
+            "12d" = "Search for credit card devices on network"
             "13b" = "Launch ServiceNow for AU Open Tickets"
             "14" = "AD User Management"
             "14u" = "Update Hospital Master"
@@ -2747,7 +2836,7 @@ try {
                     $host.UI.RawUI.WindowTitle = "VCATechManager v$version - $scriptPath"
                 }
                 "1" {
-                    Invoke-MenuOption1 -AU $AU -ADCredential $ADCredential -credPathAD $credPathAD
+                    Invoke-MenuOption1 -AU $AU -ADCredential $ADCredential -ADPath $credentialPathAD
                 }
                 "2" {
                     # Import PoshRSJob for parallel processing
@@ -2778,7 +2867,7 @@ try {
                         try {
                             $ADCredential = Get-Credential -Message "Enter AD domain credentials (e.g., vcaantech\youruser)" -ErrorAction Stop
                             if ($ADCredential) {
-                                $ADCredential | Export-Clixml -Path $credPathAD -Force -ErrorAction Stop
+                                $ADCredential | Export-Clixml -Path $credentialPathAD -Force -ErrorAction Stop
                                 Write-Host "AD credentials saved." -ForegroundColor Green
                                 Write-Log "AD credentials updated via option 5."
                             } else {
@@ -2799,7 +2888,7 @@ try {
                     }
                 }
                 "6" {
-                    Kill-SparkyShell -AU $AU
+                    Stop-SparkyShell -AU $AU
                 }
                 "6d" {
                     # Debug Kill Sparky Shell - list Sparky processes on servers
@@ -2852,6 +2941,8 @@ try {
                     Write-Host "11. Update Admin Credentials: Update stored admin credentials." -ForegroundColor White
                     Write-Host "12. Search for heska devices" -ForegroundColor White
                     Write-Host "12b. Graphical Ping to Fuse" -ForegroundColor White
+                    Write-Host "12c. Show all DHCP leases and reservations" -ForegroundColor White
+                    Write-Host "12d. Search for credit card devices on network" -ForegroundColor White
                     Write-Host "13. Launch ServiceNow for AU All Tickets" -ForegroundColor White
                     Write-Host "13b. Launch ServiceNow for AU Open Tickets" -ForegroundColor White
                     Write-Host "14. AD User Management: Reset password/unlock account for users." -ForegroundColor White
@@ -3005,6 +3096,14 @@ try {
                         Write-Host "Could not launch PingInfoView for AU $AU : $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
+                "12c" {
+                    # Show all DHCP leases and reservations
+                    ShowAllDHCPLeases -AU $AU
+                }
+                "12d" {
+                    # Search for credit card devices
+                    SearchCreditCardDevices -AU $AU
+                }
                 "13b" {
                     # Launch ServiceNow for AU Open Tickets
                     $snUrl = "https://marsvh.service-now.com/now/nav/ui/classic/params/target/incident_list.do?sysparm_query=u_departmentLIKE$AU%20-^incident_state!=7^ORincident_state=NULL&sysparm_first_row=1&sysparm_view="
@@ -3017,7 +3116,7 @@ try {
                         Write-Host "AD credentials invalid. Prompting for new ones..." -ForegroundColor Yellow
                         $ADCredential = Get-Credential -Message "Enter AD domain credentials (e.g., vcaantech\youruser)" -ErrorAction Stop
                         if ($ADCredential) {
-                            $ADCredential | Export-Clixml -Path $credPathAD -Force -ErrorAction Stop
+                            $ADCredential | Export-Clixml -Path $credentialPathAD -Force -ErrorAction Stop
                             Write-Host "AD credentials saved." -ForegroundColor Green
                             Write-Log "AD credentials updated via option 14."
                         } else {
@@ -3116,7 +3215,7 @@ try {
                     Start-Process -FilePath "$PSScriptRoot\VCATechManager.cmd" -WorkingDirectory $PSScriptRoot
                 }
                 default {
-                    Write-Host "Invalid choice. Please select 0-16, 19, 81-83, 999 or 'h' for menu." -ForegroundColor Red
+                    Write-Host "Invalid choice. Please select a valid option from the menu or 'h' for menu." -ForegroundColor Red
                 }
             }
         } while ($menuActive)

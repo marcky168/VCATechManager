@@ -2,6 +2,12 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.56 - 2025-10-30
++ CODE QUALITY IMPROVEMENT: Resolved all PSScriptAnalyzer warnings for PSAvoidUsingPlainTextForPassword rule by renaming parameters and adding suppressions
++ PING ENHANCEMENT: Added interactive ping options to options 12 (Search for Heska devices), 12c (Show all DHCP leases), and 12d (Search for credit card devices) allowing users to ping selected devices or all found devices after DHCP searches
++ PERFORMANCE IMPROVEMENT: Implemented parallel ping testing using RSJob module for better reliability and output formatting in options 12 and 12d, with runspace-based parallelism in option 12c to prevent network saturation; significantly speeding up connectivity tests for multiple devices
++ USER EXPERIENCE IMPROVEMENT: Added input trimming to ping option selection to handle accidental spacebar presses before entering numbers, preventing "Invalid option" errors; fixed parallel ping output issues by using RSJob for cleaner True/False results with device names and IPs, sorted alphabetically for easy reading
+
 v1.55 - 2025-10-30
 + AUTO-UPDATE TESTING: Manual version bump to 1.55 to test the auto-update mechanism and verify that all version files and changelog are properly synchronized during updates
 
