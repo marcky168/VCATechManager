@@ -7,28 +7,25 @@ function DeviceConnectivityTest {
     Write-Host "Searching for Heska devices in DHCP leases and reservations for AU $AU" -ForegroundColor Cyan
     Write-ConditionalLog "Starting Heska Device Search for AU $AU"
 
-    # Load admin credentials for DHCP server access (required for permissions)
-    $adminCredPath = "$global:ScriptRoot\Private\vcaadmin.xml"
-    if (Test-Path $adminCredPath) {
-        try {
-            $AdminCredential = Import-Clixml -Path $adminCredPath
-            Write-ConditionalLog "Admin credentials loaded for DHCP access in AU $AU"
-        } catch {
-            Write-Host "Failed to load admin credentials from $adminCredPath : $($_.Exception.Message). DHCP access may fail." -ForegroundColor Red
-            Write-ConditionalLog "Failed to load admin credentials for DHCP: $($_.Exception.Message)"
-            $AdminCredential = $null
-        }
-    } else {
-        Write-Host "Admin credentials file not found at $adminCredPath. Update via menu option 11. DHCP access may fail." -ForegroundColor Yellow
-        Write-ConditionalLog "Admin credentials file missing for DHCP access in AU $AU"
-        $AdminCredential = $null
-    }
-
-    # Get DHCP servers for this AU
+    # Get DHCP servers for this AU (no cred needed here)
     $dhcpServers = Get-DHCPServersForAU -AU $AU -Credential $ADCredential
     if (-not $dhcpServers -or $dhcpServers.Count -eq 0) {
         Write-Host "No DHCP servers configured or discovered for AU $AU. Skipping search." -ForegroundColor Yellow
         return
+    }
+
+    # Determine a test server for credential validation (use first DHCP server)
+    $testServer = $dhcpServers[0]
+
+    # Load admin credentials securely (prompt/save if missing or invalid)
+    $adminCredPath = "$global:ScriptRoot\Private\vcaadmin.xml"
+    $AdminCredential = Get-AdminSecureCredential -CredPath $adminCredPath -TestServer $testServer
+
+    if (-not $AdminCredential) {
+        Write-Host "No valid admin credentials available. DHCP access may fail." -ForegroundColor Red
+        Write-ConditionalLog "No valid admin credentials for DHCP access in AU $AU"
+    } else {
+        Write-ConditionalLog "Admin credentials loaded/validated for DHCP access in AU $AU"
     }
 
     # Get scopes from all DHCP servers, filtered for this AU (like VCAHospLauncher option 24b)
@@ -112,17 +109,7 @@ function DeviceConnectivityTest {
     } catch {
         Write-Host "Error fetching leases from $selectedServer : $($_.Exception.Message)" -ForegroundColor Yellow
         if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-            Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-            $updateCred = Read-Host
-            if ($updateCred.ToLower() -eq 'y') {
-                $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                if ($newCred) {
-                    $newCred | Export-Clixml -Path $adminCredPath -Force
-                    Write-Host "Admin credentials updated." -ForegroundColor Green
-                    Write-ConditionalLog "Admin credentials updated due to DHCP error in Heska search"
-                    $AdminCredential = $newCred
-                }
-            }
+            Write-Host "This appears to be a credential issue. Please use menu option 11 to update the admin credentials." -ForegroundColor Yellow
         }
     }
 
@@ -152,17 +139,7 @@ function DeviceConnectivityTest {
     } catch {
         Write-Host "Error fetching reservations from $selectedServer : $($_.Exception.Message)" -ForegroundColor Yellow
         if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-            Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-            $updateCred = Read-Host
-            if ($updateCred.ToLower() -eq 'y') {
-                $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                if ($newCred) {
-                    $newCred | Export-Clixml -Path $adminCredPath -Force
-                    Write-Host "Admin credentials updated." -ForegroundColor Green
-                    Write-ConditionalLog "Admin credentials updated due to DHCP error in Heska search"
-                    $AdminCredential = $newCred
-                }
-            }
+            Write-Host "This appears to be a credential issue. Please use menu option 11 to update the admin credentials." -ForegroundColor Yellow
         }
     }
 
@@ -275,28 +252,25 @@ function ShowAllDHCPLeases {
     Write-Host "Showing all DHCP leases and reservations for AU $AU" -ForegroundColor Cyan
     Write-ConditionalLog "Starting Show All DHCP Leases for AU $AU"
 
-    # Load admin credentials for DHCP server access (required for permissions)
-    $adminCredPath = "$global:ScriptRoot\Private\vcaadmin.xml"
-    if (Test-Path $adminCredPath) {
-        try {
-            $AdminCredential = Import-Clixml -Path $adminCredPath
-            Write-ConditionalLog "Admin credentials loaded for DHCP access in AU $AU"
-        } catch {
-            Write-Host "Failed to load admin credentials from $adminCredPath : $($_.Exception.Message). DHCP access may fail." -ForegroundColor Red
-            Write-ConditionalLog "Failed to load admin credentials for DHCP: $($_.Exception.Message)"
-            $AdminCredential = $null
-        }
-    } else {
-        Write-Host "Admin credentials file not found at $adminCredPath. Update via menu option 11. DHCP access may fail." -ForegroundColor Yellow
-        Write-ConditionalLog "Admin credentials file missing for DHCP access in AU $AU"
-        $AdminCredential = $null
-    }
-
-    # Get DHCP servers for this AU
+    # Get DHCP servers for this AU (no cred needed here)
     $dhcpServers = Get-DHCPServersForAU -AU $AU -Credential $ADCredential
     if (-not $dhcpServers -or $dhcpServers.Count -eq 0) {
         Write-Host "No DHCP servers configured or discovered for AU $AU. Skipping search." -ForegroundColor Yellow
         return
+    }
+
+    # Determine a test server for credential validation (use first DHCP server)
+    $testServer = $dhcpServers[0]
+
+    # Load admin credentials securely (prompt/save if missing or invalid)
+    $adminCredPath = "$global:ScriptRoot\Private\vcaadmin.xml"
+    $AdminCredential = Get-AdminSecureCredential -CredPath $adminCredPath -TestServer $testServer
+
+    if (-not $AdminCredential) {
+        Write-Host "No valid admin credentials available. DHCP access may fail." -ForegroundColor Red
+        Write-ConditionalLog "No valid admin credentials for DHCP access in AU $AU"
+    } else {
+        Write-ConditionalLog "Admin credentials loaded/validated for DHCP access in AU $AU"
     }
 
     # Get scopes from all DHCP servers, filtered for this AU (like VCAHospLauncher option 24b)
@@ -372,17 +346,7 @@ function ShowAllDHCPLeases {
     } catch {
         Write-Host "Error fetching leases from $selectedServer : $($_.Exception.Message)" -ForegroundColor Yellow
         if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-            Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-            $updateCred = Read-Host
-            if ($updateCred.ToLower() -eq 'y') {
-                $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                if ($newCred) {
-                    $newCred | Export-Clixml -Path $adminCredPath -Force
-                    Write-Host "Admin credentials updated." -ForegroundColor Green
-                    Write-ConditionalLog "Admin credentials updated due to DHCP error in Show All DHCP Leases"
-                    $AdminCredential = $newCred
-                }
-            }
+            Write-Host "This appears to be a credential issue. Please use menu option 11 to update the admin credentials." -ForegroundColor Yellow
         }
     }
 
@@ -404,17 +368,7 @@ function ShowAllDHCPLeases {
     } catch {
         Write-Host "Error fetching reservations from $selectedServer : $($_.Exception.Message)" -ForegroundColor Yellow
         if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-            Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-            $updateCred = Read-Host
-            if ($updateCred.ToLower() -eq 'y') {
-                $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                if ($newCred) {
-                    $newCred | Export-Clixml -Path $adminCredPath -Force
-                    Write-Host "Admin credentials updated." -ForegroundColor Green
-                    Write-ConditionalLog "Admin credentials updated due to DHCP error in Show All DHCP Leases"
-                    $AdminCredential = $newCred
-                }
-            }
+            Write-Host "This appears to be a credential issue. Please use menu option 11 to update the admin credentials." -ForegroundColor Yellow
         }
     }
 
@@ -562,28 +516,25 @@ function SearchCreditCardDevices {
     Write-Host "Searching for credit card devices for AU $AU" -ForegroundColor Cyan
     Write-ConditionalLog "Starting Credit Card Device Search for AU $AU"
 
-    # Load admin credentials for DHCP server access (required for permissions)
-    $adminCredPath = "$global:ScriptRoot\Private\vcaadmin.xml"
-    if (Test-Path $adminCredPath) {
-        try {
-            $AdminCredential = Import-Clixml -Path $adminCredPath
-            Write-ConditionalLog "Admin credentials loaded for DHCP access in AU $AU"
-        } catch {
-            Write-Host "Failed to load admin credentials from $adminCredPath : $($_.Exception.Message). DHCP access may fail." -ForegroundColor Red
-            Write-ConditionalLog "Failed to load admin credentials for DHCP: $($_.Exception.Message)"
-            $AdminCredential = $null
-        }
-    } else {
-        Write-Host "Admin credentials file not found at $adminCredPath. Update via menu option 11. DHCP access may fail." -ForegroundColor Yellow
-        Write-ConditionalLog "Admin credentials file missing for DHCP access in AU $AU"
-        $AdminCredential = $null
-    }
-
-    # Get DHCP servers for this AU
+    # Get DHCP servers for this AU (no cred needed here)
     $dhcpServers = Get-DHCPServersForAU -AU $AU -Credential $ADCredential
     if (-not $dhcpServers -or $dhcpServers.Count -eq 0) {
         Write-Host "No DHCP servers configured or discovered for AU $AU. Skipping search." -ForegroundColor Yellow
         return
+    }
+
+    # Determine a test server for credential validation (use first DHCP server)
+    $testServer = $dhcpServers[0]
+
+    # Load admin credentials securely (prompt/save if missing or invalid)
+    $adminCredPath = "$global:ScriptRoot\Private\vcaadmin.xml"
+    $AdminCredential = Get-AdminSecureCredential -CredPath $adminCredPath -TestServer $testServer
+
+    if (-not $AdminCredential) {
+        Write-Host "No valid admin credentials available. DHCP access may fail." -ForegroundColor Red
+        Write-ConditionalLog "No valid admin credentials for DHCP access in AU $AU"
+    } else {
+        Write-ConditionalLog "Admin credentials loaded/validated for DHCP access in AU $AU"
     }
 
     # Get scopes from all DHCP servers, filtered for this AU (like VCAHospLauncher option 24b)
@@ -667,17 +618,7 @@ function SearchCreditCardDevices {
     } catch {
         Write-Host "Error fetching leases from $selectedServer : $($_.Exception.Message)" -ForegroundColor Yellow
         if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-            Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-            $updateCred = Read-Host
-            if ($updateCred.ToLower() -eq 'y') {
-                $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                if ($newCred) {
-                    $newCred | Export-Clixml -Path $adminCredPath -Force
-                    Write-Host "Admin credentials updated." -ForegroundColor Green
-                    Write-ConditionalLog "Admin credentials updated due to DHCP error in Credit Card search"
-                    $AdminCredential = $newCred
-                }
-            }
+            Write-Host "This appears to be a credential issue. Please use menu option 11 to update the admin credentials." -ForegroundColor Yellow
         }
     }
 
@@ -707,17 +648,7 @@ function SearchCreditCardDevices {
     } catch {
         Write-Host "Error fetching reservations from $selectedServer : $($_.Exception.Message)" -ForegroundColor Yellow
         if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-            Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-            $updateCred = Read-Host
-            if ($updateCred.ToLower() -eq 'y') {
-                $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                if ($newCred) {
-                    $newCred | Export-Clixml -Path $adminCredPath -Force
-                    Write-Host "Admin credentials updated." -ForegroundColor Green
-                    Write-ConditionalLog "Admin credentials updated due to DHCP error in Credit Card search"
-                    $AdminCredential = $newCred
-                }
-            }
+            Write-Host "This appears to be a credential issue. Please use menu option 11 to update the admin credentials." -ForegroundColor Yellow
         }
     }
 

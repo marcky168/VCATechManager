@@ -2,6 +2,11 @@ VCA Tech Manager - Changelog
 Author: Marc Yap
 Contributors: Grok (AI Assistant)
 
+v1.57 - 2025-10-31
++ CREDENTIAL MANAGEMENT CENTRALIZATION: Implemented centralized credential management to fix multiple credential prompts in DHCP functions (12, 12c, 12d) by adding Test-AdminCredentials and Get-AdminSecureCredential functions that load, test, prompt, and save admin credentials once per function call instead of passive loading causing repeated access-denied failures
++ USER EXPERIENCE IMPROVEMENT: Enhanced error checking functions (2, 2b, 2c) to only prompt for export/email when errors are actually selected from Out-GridView, preventing unnecessary prompts when users close the grid without selection; changed from single to multiple selection mode for better usability
++ ERROR HANDLING ENHANCEMENT: Updated all DHCP and AD functions to direct users to menu option 11 for credential management instead of inline prompts, providing consistent credential management across the application
+
 v1.56 - 2025-10-30
 + CODE QUALITY IMPROVEMENT: Resolved all PSScriptAnalyzer warnings for PSAvoidUsingPlainTextForPassword rule by renaming parameters and adding suppressions
 + PING ENHANCEMENT: Added interactive ping options to options 12 (Search for Heska devices), 12c (Show all DHCP leases), and 12d (Search for credit card devices) allowing users to ping selected devices or all found devices after DHCP searches

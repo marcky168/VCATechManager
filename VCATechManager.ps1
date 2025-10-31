@@ -1,8 +1,8 @@
 # Combined PowerShell Script with Menu Options
-# --- END Trusted Site Fix ---
+
 
 # Set version
-$version = "1.56"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
+$version = "1.57"  # CONFIGURATION FLEXIBILITY: Added default config values for testing while maintaining security requirements
 
 # Load configuration from JSON file
 $configPath = "$PSScriptRoot\Private\config.json"
@@ -183,6 +183,72 @@ function Get-ADSecureCredential {
 
     # 3. Return null if no valid credentials found - let calling code decide whether to prompt
     return $null
+}
+
+# Function to validate admin credentials with a harmless DHCP command
+function Test-AdminCredentials {
+    param(
+        [pscredential]$Credential,
+        [string]$TestServer
+    )
+    if (-not $Credential -or -not $TestServer) { return $false }
+    try {
+        Invoke-Command -ComputerName $TestServer -ScriptBlock { Get-DhcpServerVersion } -Credential $Credential -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        Write-Log "Test-AdminCredentials failed: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
+        return $false
+    }
+}
+
+# Function to securely get/load/save admin credentials (similar to Get-ADSecureCredential)
+function Get-AdminSecureCredential {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSAvoidUsingPlainTextForPassword", "CredPath")]
+    param(
+        [string]$CredPath,
+        [string]$PromptMessage = "Enter admin credentials (e.g., vcaantech\marcy.admin)",
+        [switch]$ForcePrompt = $false,
+        [string]$TestServer = $null  # Optional: Server to test credentials against
+    )
+
+    # 1. Attempt to Load Saved Credential (unless forced to prompt)
+    if (-not $ForcePrompt -and (Test-Path $CredPath)) {
+        try {
+            $Cred = Import-Clixml -Path $CredPath -ErrorAction Stop
+            if ($Cred -is [pscredential]) {
+                if ($TestServer -and (Test-AdminCredentials -Credential $Cred -TestServer $TestServer)) {
+                    return $Cred
+                } elseif (-not $TestServer) {
+                    # If no test server, assume valid (can't test)
+                    return $Cred
+                }
+            }
+        } catch {
+            Write-Status "Failed to load saved credentials: $($_.Exception.Message)" Yellow
+            Write-Log "Failed to load saved credentials: $($_.Exception.Message) | StackTrace: $($_.Exception.StackTrace)"
+        }
+    }
+
+    # 2. Prompt for credentials if forced, missing, or invalid
+    $Cred = Get-Credential -Message $PromptMessage
+    if ($Cred) {
+        if ($TestServer -and (Test-AdminCredentials -Credential $Cred -TestServer $TestServer)) {
+            $Cred | Export-Clixml -Path $CredPath -Force -ErrorAction SilentlyContinue
+            Write-Status "Credentials saved successfully." Green
+            return $Cred
+        } elseif (-not $TestServer) {
+            # If no test server, save anyway
+            $Cred | Export-Clixml -Path $CredPath -Force -ErrorAction SilentlyContinue
+            Write-Status "Credentials saved successfully (untested)." Green
+            return $Cred
+        } else {
+            Write-Status "Invalid credentials provided (test failed). Falling back to default context." Yellow
+            return $null
+        }
+    } else {
+        Write-Status "No credentials provided. Falling back to default context." Yellow
+        return $null
+    }
 }
 
 # Load credentials early with centralized function
@@ -803,17 +869,7 @@ try {
                 } catch {
                     Write-Status "WARNING: Could not retrieve leases from DHCP server '$dhcpServer': $($_.Exception.Message)" Yellow
                     if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-                        Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-                        $updateCred = Read-Host
-                        if ($updateCred.ToLower() -eq 'y') {
-                            $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                            if ($newCred) {
-                                $newCred | Export-Clixml -Path $adminCredPath -Force
-                                Write-Host "Admin credentials updated." -ForegroundColor Green
-                                Write-Log "Admin credentials updated due to DHCP error in Abaxis search"
-                                $Credential = $newCred
-                            }
-                        }
+                        Write-Host "This appears to be a credential issue. Please update the admin credentials via menu option 11." -ForegroundColor Yellow
                     }
                 }
             }
@@ -858,17 +914,7 @@ try {
                 } catch {
                     Write-Status "WARNING: Could not retrieve reservations from DHCP server '$dhcpServer': $($_.Exception.Message)" Yellow
                     if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-                        Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-                        $updateCred = Read-Host
-                        if ($updateCred.ToLower() -eq 'y') {
-                            $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                            if ($newCred) {
-                                $newCred | Export-Clixml -Path $adminCredPath -Force
-                                Write-Host "Admin credentials updated." -ForegroundColor Green
-                                Write-Log "Admin credentials updated due to DHCP error in Abaxis search"
-                                $Credential = $newCred
-                            }
-                        }
+                        Write-Host "This appears to be a credential issue. Please update the admin credentials via menu option 11." -ForegroundColor Yellow
                     }
                 }
             }
@@ -1110,173 +1156,175 @@ try {
         }
 
         # Display all errors in one grid
-        $selectedError = $processedResults | Out-GridView -Title "#2 Woofware Errors Check - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Single
+        $selectedErrors = $processedResults | Out-GridView -Title "#2 Woofware Errors Check - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Multiple
 
-        # Display selected error details
-        if ($selectedError) {
+        if ($selectedErrors) {
+            # Display selected error details
             Write-Host "Selected Error Details:" -ForegroundColor Cyan
-            $selectedError | Format-List MachineName, TimeCreated, EventID, RecordID, ThreadIdentity, WindowsIdentity, ExceptionType, FullMessage
+            $selectedErrors | Format-List MachineName, TimeCreated, EventID, RecordID, ThreadIdentity, WindowsIdentity, ExceptionType, FullMessage
 
             # Prompt to copy error message to clipboard
             $copyToClipboard = Read-Host "Copy error message to clipboard? (y/n)"
             if ($copyToClipboard.ToLower() -eq 'y') {
-                $selectedError.FullMessage | Set-Clipboard
+                $selectedErrors.FullMessage | Set-Clipboard
                 Write-Host "Error message copied to clipboard." -ForegroundColor Green
             }
-        }
 
-        # Use helper for export
-        Export-Results -Results $processedResults -BaseName "woofware_results" -AU $AU
+            # Use helper for export
+            Export-Results -Results $processedResults -BaseName "woofware_results" -AU $AU
 
-        # Prompt to send email to dev team
-        $sendEmail = Read-Host "Send email to dev team about these errors? (y/n)"
-        if ($sendEmail.ToLower() -eq 'y') {
-            $description = Read-Host "Enter issue description"
+            # Prompt to send email to dev team
+            $sendEmail = Read-Host "Send email to dev team about these errors? (y/n)"
+            if ($sendEmail.ToLower() -eq 'y') {
+                $description = Read-Host "Enter issue description"
 
-            # Get hospital details from $HospitalInfo (assuming it's in scope; it's loaded earlier per AU)
-            if ($HospitalInfo) {
-                $location = $HospitalInfo.'Operating Name'
-                $contact = $HospitalInfo.'Hospital Manager'
-                $phone = $HospitalInfo.'Phone'
-            } else {
-                $location = "AU $AU"
-                $contact = "N/A"
-                $phone = "N/A"
-            }
-
-            $subject = "AU$($AU.PadLeft(4, '0')) Woofware Error"
-
-            # Build error details string
-            if ($selectedError) {
-                $errorDetails = "Selected Error Details:`n" +
-                    "Server: $($selectedError.PSComputerName)`n" +
-                    "Time Created: $($selectedError.TimeCreated)`n" +
-                    "Event ID: $($selectedError.EventID)`n" +
-                    "Record ID: $($selectedError.RecordID)`n" +
-                    "Machine Name: $($selectedError.MachineName)`n" +
-                    "Thread Identity: $($selectedError.ThreadIdentity)`n" +
-                    "Windows Identity: $($selectedError.WindowsIdentity)`n" +
-                    "Exception Type: $($selectedError.ExceptionType)`n" +
-                    "Message Error: $($selectedError.MessagError)`n" +
-                    "Full Message: $($selectedError.FullMessage)"
-            } else {
-                $errorDetails = "No specific error selected from the grids."
-            }
-
-            $recipientChoice = Read-Host "Send to (d)ev team and DBA, or (b) DBA only?"
-            switch ($recipientChoice.ToLower()) {
-                'd' {
-                    $to = "WoofwareDevSupport@vca.com"
-                    $cc = "ITSQLDBA@vca.com"
+                # Get hospital details from $HospitalInfo (assuming it's in scope; it's loaded earlier per AU)
+                if ($HospitalInfo) {
+                    $location = $HospitalInfo.'Operating Name'
+                    $contact = $HospitalInfo.'Hospital Manager'
+                    $phone = $HospitalInfo.'Phone'
+                } else {
+                    $location = "AU $AU"
+                    $contact = "N/A"
+                    $phone = "N/A"
                 }
-                'b' {
-                    $to = "ITSQLDBA@vca.com"
-                    $cc = $null
+
+                $subject = "AU$($AU.PadLeft(4, '0')) Woofware Error"
+
+                # Build error details string
+                if ($selectedErrors) {
+                    $errorDetails = "Selected Error Details:`n" +
+                        "Server: $($selectedErrors.PSComputerName)`n" +
+                        "Time Created: $($selectedErrors.TimeCreated)`n" +
+                        "Event ID: $($selectedErrors.EventID)`n" +
+                        "Record ID: $($selectedErrors.RecordID)`n" +
+                        "Machine Name: $($selectedErrors.MachineName)`n" +
+                        "Thread Identity: $($selectedErrors.ThreadIdentity)`n" +
+                        "Windows Identity: $($selectedErrors.WindowsIdentity)`n" +
+                        "Exception Type: $($selectedErrors.ExceptionType)`n" +
+                        "Message Error: $($selectedErrors.MessagError)`n" +
+                        "Full Message: $($selectedErrors.FullMessage)"
+                } else {
+                    $errorDetails = "No specific error selected from the grids."
                 }
-                default {
-                    Write-Host "Invalid choice. Defaulting to Dev team and DBA." -ForegroundColor Yellow
-                    $to = "WoofwareDevSupport@vca.com"
-                    $cc = "ITSQLDBA@vca.com"
-                }
-            }
 
-            # Ensure Outlook is running
-            Start-OutlookIfNeeded
-
-            # Read and append default Outlook signature using dummy email method (embed images as base64)
-            $signatureHtml = ""
-            try {
-                # Create Outlook COM object
-                $outlook = New-Object -ComObject Outlook.Application
-
-                # Create dummy email to capture default signature
-                $dummyMail = $outlook.CreateItem(0)  # 0 = olMailItem
-                $dummyMail.Display()  # Briefly shows window to insert signature
-                $signatureHtml = $dummyMail.HTMLBody
-
-                # Embed images as base64 to avoid attachment issues
-                foreach ($attach in $dummyMail.Attachments) {
-                    try {
-                        $cid = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001E")
-                        $data = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x37010102")
-                        $base64 = [Convert]::ToBase64String($data)
-                        $ext = [System.IO.Path]::GetExtension($attach.FileName).ToLower()
-                        $mime = switch ($ext) {
-                            '.png' { 'image/png' }
-                            '.jpg' { 'image/jpeg' }
-                            '.jpeg' { 'image/jpeg' }
-                            '.gif' { 'image/gif' }
-                            default { 'image/png' }
-                        }
-                        $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
-                    } catch {
-                        Write-Debug "Failed to embed attachment $($attach.FileName): $($_.Exception.Message)"
+                $recipientChoice = Read-Host "Send to (d)ev team and DBA, or (b) DBA only?"
+                switch ($recipientChoice.ToLower()) {
+                    'd' {
+                        $to = "WoofwareDevSupport@vca.com"
+                        $cc = "ITSQLDBA@vca.com"
+                    }
+                    'b' {
+                        $to = "ITSQLDBA@vca.com"
+                        $cc = $null
+                    }
+                    default {
+                        Write-Host "Invalid choice. Defaulting to Dev team and DBA." -ForegroundColor Yellow
+                        $to = "WoofwareDevSupport@vca.com"
+                        $cc = "ITSQLDBA@vca.com"
                     }
                 }
 
-                # Close dummy mail
-                $dummyMail.Close(1)  # 1 = olDiscard
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
-                $dummyMail = $null  # Prevent re-release in finally
-            } catch {
-                Write-Host "Failed to load signature via dummy email: $($_.Exception.Message). Proceeding without." -ForegroundColor Yellow
-                Write-Log "Signature load error: $($_.Exception.Message)"
-            }
+                # Ensure Outlook is running
+                Start-OutlookIfNeeded
 
-            # Build formatted HTML body
-            $bodyHtml = [string]::Format('<p><strong style="color: red;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: red;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: red;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: red;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: red;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
+                # Read and append default Outlook signature using dummy email method (embed images as base64)
+                $signatureHtml = ""
+                try {
+                    # Create Outlook COM object
+                    $outlook = New-Object -ComObject Outlook.Application
 
-            # Wrap in html/body if signature doesn't include it
-            $bodyHtml = "<html><body>$bodyHtml</body></html>"
+                    # Create dummy email to capture default signature
+                    $dummyMail = $outlook.CreateItem(0)  # 0 = olMailItem
+                    $dummyMail.Display()  # Briefly shows window to insert signature
+                    $signatureHtml = $dummyMail.HTMLBody
 
-            try {
-                # Create real email
-                $mail = $outlook.CreateItem(0)
+                    # Embed images as base64 to avoid attachment issues
+                    foreach ($attach in $dummyMail.Attachments) {
+                        try {
+                            $cid = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001E")
+                            $data = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x37010102")
+                            $base64 = [Convert]::ToBase64String($data)
+                            $ext = [System.IO.Path]::GetExtension($attach.FileName).ToLower()
+                            $mime = switch ($ext) {
+                                '.png' { 'image/png' }
+                                '.jpg' { 'image/jpeg' }
+                                '.jpeg' { 'image/jpeg' }
+                                '.gif' { 'image/gif' }
+                                default { 'image/png' }
+                            }
+                            $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
+                        } catch {
+                            Write-Debug "Failed to embed attachment $($attach.FileName): $($_.Exception.Message)"
+                        }
+                    }
 
-                # Set email properties
-                $mail.To = $to
-                if ($cc) { $mail.CC = $cc }
-                $mail.Subject = $subject
-                $mail.HTMLBody = $bodyHtml  # Set body with embedded signature images
-                # Set importance to High (2)
-                $mail.Importance = 2
-
-                # Optional: Attach the exported CSV if it was created
-                # $exportPath = "$PSScriptRoot\reports\${AU}_woofware_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
-                # if (Test-Path $exportPath) { $mail.Attachments.Add($exportPath) }
-
-                $mail.Display()  # Opens as draft for review/edit/send
-                Write-Host "Email draft created in Outlook with embedded images." -ForegroundColor Green
-                Write-Log "Created email draft for Woofware errors AU $AU"
-
-                # Clean up real email and outlook COM objects
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
-                $mail = $null
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
-                $outlook = $null
-                [System.GC]::Collect()
-                [System.GC]::WaitForPendingFinalizers()
-            } catch {
-                Write-Host "Failed to create email: $($_.Exception.Message). Ensure Outlook is installed." -ForegroundColor Red
-                Write-Log "Email creation error: $($_.Exception.Message)"
-            } finally {
-                # Clean up: Close and release COM objects (only if not already released)
-                if ($dummyMail) {
+                    # Close dummy mail
                     $dummyMail.Close(1)  # 1 = olDiscard
                     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
-                    $dummyMail = $null
+                    $dummyMail = $null  # Prevent re-release in finally
+                } catch {
+                    Write-Host "Failed to load signature via dummy email: $($_.Exception.Message). Proceeding without." -ForegroundColor Yellow
+                    Write-Log "Signature load error: $($_.Exception.Message)"
                 }
-                if ($mail) {
+
+                # Build formatted HTML body
+                $bodyHtml = [string]::Format('<p><strong style="color: red;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: red;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: red;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: red;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: red;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
+
+                # Wrap in html/body if signature doesn't include it
+                $bodyHtml = "<html><body>$bodyHtml</body></html>"
+
+                try {
+                    # Create real email
+                    $mail = $outlook.CreateItem(0)
+
+                    # Set email properties
+                    $mail.To = $to
+                    if ($cc) { $mail.CC = $cc }
+                    $mail.Subject = $subject
+                    $mail.HTMLBody = $bodyHtml  # Set body with embedded signature images
+                    # Set importance to High (2)
+                    $mail.Importance = 2
+
+                    # Optional: Attach the exported CSV if it was created
+                    # $exportPath = "$PSScriptRoot\reports\${AU}_woofware_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+                    # if (Test-Path $exportPath) { $mail.Attachments.Add($exportPath) }
+
+                    $mail.Display()  # Opens as draft for review/edit/send
+                    Write-Host "Email draft created in Outlook with embedded images." -ForegroundColor Green
+                    Write-Log "Created email draft for Woofware errors AU $AU"
+
+                    # Clean up real email and outlook COM objects
                     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
                     $mail = $null
-                }
-                if ($outlook) {
                     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
                     $outlook = $null
+                    [System.GC]::Collect()
+                    [System.GC]::WaitForPendingFinalizers()
+                } catch {
+                    Write-Host "Failed to create email: $($_.Exception.Message). Ensure Outlook is installed." -ForegroundColor Red
+                    Write-Log "Email creation error: $($_.Exception.Message)"
+                } finally {
+                    # Clean up: Close and release COM objects (only if not already released)
+                    if ($dummyMail) {
+                        $dummyMail.Close(1)  # 1 = olDiscard
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
+                        $dummyMail = $null
+                    }
+                    if ($mail) {
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
+                        $mail = $null
+                    }
+                    if ($outlook) {
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
+                        $outlook = $null
+                    }
+                    [System.GC]::Collect()
+                    [System.GC]::WaitForPendingFinalizers()
                 }
-                [System.GC]::Collect()
-                [System.GC]::WaitForPendingFinalizers()
             }
+        } else {
+            Write-Host "No errors selected. Returning to menu." -ForegroundColor Yellow
         }
     }
 
@@ -1401,177 +1449,177 @@ try {
 
         # Display all errors in a single grid for selection
         if ($processedResults) {
-            $selectedError = $processedResults | Out-GridView -Title "#2b Woofware Errors Check by User - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Single
-            if ($selectedError) {
+            $selectedErrors = $processedResults | Out-GridView -Title "#2b Woofware Errors Check by User - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Multiple
+            if ($selectedErrors) {
                 Write-Host "Selected Error Details:" -ForegroundColor Cyan
-                $selectedError | Format-List MachineName, TimeCreated, EventID, RecordID, ThreadIdentity, WindowsIdentity, ExceptionType, FullMessage
+                $selectedErrors | Format-List MachineName, TimeCreated, EventID, RecordID, ThreadIdentity, WindowsIdentity, ExceptionType, FullMessage
 
                 # Prompt to copy error message to clipboard
                 $copyToClipboard = Read-Host "Copy error message to clipboard? (y/n)"
                 if ($copyToClipboard.ToLower() -eq 'y') {
-                    $selectedError.FullMessage | Set-Clipboard
+                    $selectedErrors.FullMessage | Set-Clipboard
                     Write-Host "Error message copied to clipboard." -ForegroundColor Green
                 }
+
+                # Export using helper
+                Export-Results -Results $processedResults -BaseName "woofware_user_results" -AU $AU
+
+                # Email prompt (same as original, but add username to subject/description)
+                $sendEmail = Read-Host "Send email to dev team about these errors? (y/n)"
+                if ($sendEmail.ToLower() -eq 'y') {
+                    $description = Read-Host "Enter issue description"
+
+                    # Get hospital details from $HospitalInfo (assuming it's in scope; it's loaded earlier per AU)
+                    if ($HospitalInfo) {
+                        $location = $HospitalInfo.'Operating Name'
+                        $contact = $HospitalInfo.'Hospital Manager'
+                        $phone = $HospitalInfo.'Phone'
+                    } else {
+                        $location = "AU $AU"
+                        $contact = "N/A"
+                        $phone = "N/A"
+                    }
+
+                    $subject = "AU$($AU.PadLeft(4, '0')) Woofware Error for User $Username"
+
+                    # Build error details string
+                    if ($selectedErrors) {
+                        $errorDetails = "Selected Error Details:`n" +
+                            "Server: $($selectedErrors.PSComputerName)`n" +
+                            "Time Created: $($selectedErrors.TimeCreated)`n" +
+                            "Event ID: $($selectedErrors.EventID)`n" +
+                            "Record ID: $($selectedErrors.RecordID)`n" +
+                            "Machine Name: $($selectedErrors.MachineName)`n" +
+                            "Thread Identity: $($selectedErrors.ThreadIdentity)`n" +
+                            "Windows Identity: $($selectedErrors.WindowsIdentity)`n" +
+                            "Exception Type: $($selectedErrors.ExceptionType)`n" +
+                            "Message Error: $($selectedErrors.MessagError)`n" +
+                            "Full Message: $($selectedErrors.FullMessage)"
+                    } else {
+                        $errorDetails = "No specific error selected from the grids."
+                    }
+
+                    $recipientChoice = Read-Host "Send to (d)ev team and DBA, or (b) DBA only?"
+                    switch ($recipientChoice.ToLower()) {
+                        'd' {
+                            $to = "WoofwareDevSupport@vca.com"
+                            $cc = "ITSQLDBA@vca.com"
+                        }
+                        'b' {
+                            $to = "ITSQLDBA@vca.com"
+                            $cc = $null
+                        }
+                        default {
+                            Write-Host "Invalid choice. Defaulting to Dev team and DBA." -ForegroundColor Yellow
+                            $to = "WoofwareDevSupport@vca.com"
+                            $cc = "ITSQLDBA@vca.com"
+                        }
+                    }
+
+                    # Ensure Outlook is running
+                    Start-OutlookIfNeeded
+
+                    # Read and append default Outlook signature using dummy email method (embed images as base64)
+                    $signatureHtml = ""
+                    try {
+                        # Create Outlook COM object
+                        $outlook = New-Object -ComObject Outlook.Application
+
+                        # Create dummy email to capture default signature
+                        $dummyMail = $outlook.CreateItem(0)  # 0 = olMailItem
+                        $dummyMail.Display()  # Briefly shows window to insert signature
+                        $signatureHtml = $dummyMail.HTMLBody
+
+                        # Embed images as base64 to avoid attachment issues
+                        foreach ($attach in $dummyMail.Attachments) {
+                            try {
+                                $cid = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001E")
+                                $data = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x37010102")
+                                $base64 = [Convert]::ToBase64String($data)
+                                $ext = [System.IO.Path]::GetExtension($attach.FileName).ToLower()
+                                $mime = switch ($ext) {
+                                    '.png' { 'image/png' }
+                                    '.jpg' { 'image/jpeg' }
+                                    '.jpeg' { 'image/jpeg' }
+                                    '.gif' { 'image/gif' }
+                                    default { 'image/png' }
+                                }
+                                $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
+                            } catch {
+                                Write-Debug "Failed to embed attachment $($attach.FileName): $($_.Exception.Message)"
+                            }
+                        }
+
+                        # Close dummy mail
+                        $dummyMail.Close(1)  # 1 = olDiscard
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
+                        $dummyMail = $null  # Prevent re-release in finally
+                    } catch {
+                        Write-Host "Failed to load signature via dummy email: $($_.Exception.Message). Proceeding without." -ForegroundColor Yellow
+                        Write-Log "Signature load error: $($_.Exception.Message)"
+                    }
+
+                    # Build formatted HTML body
+                    $bodyHtml = [string]::Format('<p><strong style="color: #CD5C5C;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: #CD5C5C;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: #CD5C5C;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
+
+                    # Wrap in html/body if signature doesn't include it
+                    $bodyHtml = "<html><body>$bodyHtml</body></html>"
+
+                    try {
+                        # Create real email
+                        $mail = $outlook.CreateItem(0)
+
+                        # Set email properties
+                        $mail.To = $to
+                        if ($cc) { $mail.CC = $cc }
+                        $mail.Subject = $subject
+                        $mail.HTMLBody = $bodyHtml  # Set body with embedded signature images
+                        # Set importance to High (2)
+                        $mail.Importance = 2
+
+                        # Optional: Attach the exported CSV if it was created
+                        # $exportPath = "$PSScriptRoot\reports\${AU}_woofware_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+                        # if (Test-Path $exportPath) { $mail.Attachments.Add($exportPath) }
+
+                        $mail.Display()  # Opens as draft for review/edit/send
+                        Write-Host "Email draft created in Outlook with embedded images." -ForegroundColor Green
+                        Write-Log "Created email draft for Woofware errors AU $AU"
+
+                        # Clean up real email and outlook COM objects
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
+                        $mail = $null
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
+                        $outlook = $null
+                        [System.GC]::Collect()
+                        [System.GC]::WaitForPendingFinalizers()
+                    } catch {
+                        Write-Host "Failed to create email: $($_.Exception.Message). Ensure Outlook is installed." -ForegroundColor Red
+                        Write-Log "Email creation error: $($_.Exception.Message)"
+                    } finally {
+                        # Clean up: Close and release COM objects (only if not already released)
+                        if ($dummyMail) {
+                            $dummyMail.Close(1)  # 1 = olDiscard
+                            [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
+                            $dummyMail = $null
+                        }
+                        if ($mail) {
+                            [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
+                            $mail = $null
+                        }
+                        if ($outlook) {
+                            [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
+                            $outlook = $null
+                        }
+                        [System.GC]::Collect()
+                        [System.GC]::WaitForPendingFinalizers()
+                    }
+                }
             } else {
-                Write-Host "No error selected." -ForegroundColor Yellow
+                Write-Host "No errors selected. Returning to menu." -ForegroundColor Yellow
             }
         } else {
             Write-Host "No Woofware errors found for user $Username in AU $AU." -ForegroundColor Yellow
             return
-        }
-
-        # Export using helper
-        Export-Results -Results $processedResults -BaseName "woofware_user_results" -AU $AU
-
-        # Email prompt (same as original, but add username to subject/description)
-        $sendEmail = Read-Host "Send email to dev team about these errors? (y/n)"
-        if ($sendEmail.ToLower() -eq 'y') {
-            $description = Read-Host "Enter issue description"
-
-            # Get hospital details from $HospitalInfo (assuming it's in scope; it's loaded earlier per AU)
-            if ($HospitalInfo) {
-                $location = $HospitalInfo.'Operating Name'
-                $contact = $HospitalInfo.'Hospital Manager'
-                $phone = $HospitalInfo.'Phone'
-            } else {
-                $location = "AU $AU"
-                $contact = "N/A"
-                $phone = "N/A"
-            }
-
-            $subject = "AU$($AU.PadLeft(4, '0')) Woofware Error for User $Username"
-
-            # Build error details string
-            if ($selectedError) {
-                $errorDetails = "Selected Error Details:`n" +
-                    "Server: $($selectedError.PSComputerName)`n" +
-                    "Time Created: $($selectedError.TimeCreated)`n" +
-                    "Event ID: $($selectedError.EventID)`n" +
-                    "Record ID: $($selectedError.RecordID)`n" +
-                    "Machine Name: $($selectedError.MachineName)`n" +
-                    "Thread Identity: $($selectedError.ThreadIdentity)`n" +
-                    "Windows Identity: $($selectedError.WindowsIdentity)`n" +
-                    "Exception Type: $($selectedError.ExceptionType)`n" +
-                    "Message Error: $($selectedError.MessagError)`n" +
-                    "Full Message: $($selectedError.FullMessage)"
-            } else {
-                $errorDetails = "No specific error selected from the grids."
-            }
-
-            $recipientChoice = Read-Host "Send to (d)ev team and DBA, or (b) DBA only?"
-            switch ($recipientChoice.ToLower()) {
-                'd' {
-                    $to = "WoofwareDevSupport@vca.com"
-                    $cc = "ITSQLDBA@vca.com"
-                }
-                'b' {
-                    $to = "ITSQLDBA@vca.com"
-                    $cc = $null
-                }
-                default {
-                    Write-Host "Invalid choice. Defaulting to Dev team and DBA." -ForegroundColor Yellow
-                    $to = "WoofwareDevSupport@vca.com"
-                    $cc = "ITSQLDBA@vca.com"
-                }
-            }
-
-            # Ensure Outlook is running
-            Start-OutlookIfNeeded
-
-            # Read and append default Outlook signature using dummy email method (embed images as base64)
-            $signatureHtml = ""
-            try {
-                # Create Outlook COM object
-                $outlook = New-Object -ComObject Outlook.Application
-
-                # Create dummy email to capture default signature
-                $dummyMail = $outlook.CreateItem(0)  # 0 = olMailItem
-                $dummyMail.Display()  # Briefly shows window to insert signature
-                $signatureHtml = $dummyMail.HTMLBody
-
-                # Embed images as base64 to avoid attachment issues
-                foreach ($attach in $dummyMail.Attachments) {
-                    try {
-                        $cid = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001E")
-                        $data = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x37010102")
-                        $base64 = [Convert]::ToBase64String($data)
-                        $ext = [System.IO.Path]::GetExtension($attach.FileName).ToLower()
-                        $mime = switch ($ext) {
-                            '.png' { 'image/png' }
-                            '.jpg' { 'image/jpeg' }
-                            '.jpeg' { 'image/jpeg' }
-                            '.gif' { 'image/gif' }
-                            default { 'image/png' }
-                        }
-                        $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
-                    } catch {
-                        Write-Debug "Failed to embed attachment $($attach.FileName): $($_.Exception.Message)"
-                    }
-                }
-
-                # Close dummy mail
-                $dummyMail.Close(1)  # 1 = olDiscard
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
-                $dummyMail = $null  # Prevent re-release in finally
-            } catch {
-                Write-Host "Failed to load signature via dummy email: $($_.Exception.Message). Proceeding without." -ForegroundColor Yellow
-                Write-Log "Signature load error: $($_.Exception.Message)"
-            }
-
-            # Build formatted HTML body
-            $bodyHtml = [string]::Format('<p><strong style="color: #CD5C5C;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: #CD5C5C;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: #CD5C5C;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
-
-            # Wrap in html/body if signature doesn't include it
-            $bodyHtml = "<html><body>$bodyHtml</body></html>"
-
-            try {
-                # Create real email
-                $mail = $outlook.CreateItem(0)
-
-                # Set email properties
-                $mail.To = $to
-                if ($cc) { $mail.CC = $cc }
-                $mail.Subject = $subject
-                $mail.HTMLBody = $bodyHtml  # Set body with embedded signature images
-                # Set importance to High (2)
-                $mail.Importance = 2
-
-                # Optional: Attach the exported CSV if it was created
-                # $exportPath = "$PSScriptRoot\reports\${AU}_woofware_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
-                # if (Test-Path $exportPath) { $mail.Attachments.Add($exportPath) }
-
-                $mail.Display()  # Opens as draft for review/edit/send
-                Write-Host "Email draft created in Outlook with embedded images." -ForegroundColor Green
-                Write-Log "Created email draft for Woofware errors AU $AU"
-
-                # Clean up real email and outlook COM objects
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
-                $mail = $null
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
-                $outlook = $null
-                [System.GC]::Collect()
-                [System.GC]::WaitForPendingFinalizers()
-            } catch {
-                Write-Host "Failed to create email: $($_.Exception.Message). Ensure Outlook is installed." -ForegroundColor Red
-                Write-Log "Email creation error: $($_.Exception.Message)"
-            } finally {
-                # Clean up: Close and release COM objects (only if not already released)
-                if ($dummyMail) {
-                    $dummyMail.Close(1)  # 1 = olDiscard
-                    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
-                    $dummyMail = $null
-                }
-                if ($mail) {
-                    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
-                    $mail = $null
-                }
-                if ($outlook) {
-                    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
-                    $outlook = $null
-                }
-                [System.GC]::Collect()
-                [System.GC]::WaitForPendingFinalizers()
-            }
         }
     }
 
@@ -1654,167 +1702,173 @@ try {
         }
 
         # Display all errors in one grid
-        $selectedError = $processedResults | Out-GridView -Title "#2c Application Hang Errors Check - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Single
+        $selectedErrors = $processedResults | Out-GridView -Title "#2c Application Hang Errors Check - v.$version - $(Get-Date -Format "dddd, MMMM dd, yyyy  h:mm:ss tt")" -OutputMode Multiple
 
-        # Display selected error details
-        if ($selectedError) {
-            Write-Host "Selected Error Details:" -ForegroundColor Cyan
-            $selectedError | Format-List MachineName, TimeCreated, EventID, RecordID, ThreadIdentity, WindowsIdentity, ExceptionType, FullMessage
+        if ($selectedErrors) {
+            # Display selected error details
+            foreach ($selectedError in $selectedErrors) {
+                Write-Host "Selected Error Details:" -ForegroundColor Cyan
+                $selectedError | Format-List MachineName, TimeCreated, EventID, RecordID, ThreadIdentity, WindowsIdentity, ExceptionType, FullMessage
 
-            # Prompt to copy error message to clipboard
-            $copyToClipboard = Read-Host "Copy error message to clipboard? (y/n)"
-            if ($copyToClipboard.ToLower() -eq 'y') {
-                $selectedError.FullMessage | Set-Clipboard
-                Write-Host "Error message copied to clipboard." -ForegroundColor Green
-            }
-        }
-
-        # Use helper for export
-        Export-Results -Results $processedResults -BaseName "application_hang_results" -AU $AU
-
-        # Prompt to send email to dev team
-        $sendEmail = Read-Host "Send email to dev team about these errors? (y/n)"
-        if ($sendEmail.ToLower() -eq 'y') {
-            $description = Read-Host "Enter issue description"
-
-            # Get hospital details from $HospitalInfo (assuming it's in scope; it's loaded earlier per AU)
-            if ($HospitalInfo) {
-                $location = $HospitalInfo.'Operating Name'
-                $contact = $HospitalInfo.'Hospital Manager'
-                $phone = $HospitalInfo.'Phone'
-            } else {
-                $location = "AU $AU"
-                $contact = "N/A"
-                $phone = "N/A"
-            }
-
-            $subject = "AU$($AU.PadLeft(4, '0')) Application Hang Error"
-
-            # Build error details string
-            if ($selectedError) {
-                $errorDetails = "Selected Error Details:`n" +
-                    "Server: $($selectedError.PSComputerName)`n" +
-                    "Time Created: $($selectedError.TimeCreated)`n" +
-                    "Event ID: $($selectedError.EventID)`n" +
-                    "Record ID: $($selectedError.RecordID)`n" +
-                    "Machine Name: $($selectedError.MachineName)`n" +
-                    "Thread Identity: $($selectedError.ThreadIdentity)`n" +
-                    "Windows Identity: $($selectedError.WindowsIdentity)`n" +
-                    "Exception Type: $($selectedError.ExceptionType)`n" +
-                    "Message Error: $($selectedError.MessagError)`n" +
-                    "Full Message: $($selectedError.FullMessage)"
-            } else {
-                $errorDetails = "No specific error selected from the grids."
-            }
-
-            $recipientChoice = Read-Host "Send to (d)ev team and DBA, or (b) DBA only?"
-            switch ($recipientChoice.ToLower()) {
-                'd' {
-                    $to = "WoofwareDevSupport@vca.com"
-                    $cc = "ITSQLDBA@vca.com"
-                }
-                'b' {
-                    $to = "ITSQLDBA@vca.com"
-                    $cc = $null
-                }
-                default {
-                    Write-Host "Invalid choice. Defaulting to Dev team and DBA." -ForegroundColor Yellow
-                    $to = "WoofwareDevSupport@vca.com"
-                    $cc = "ITSQLDBA@vca.com"
+                # Prompt to copy error message to clipboard
+                $copyToClipboard = Read-Host "Copy error message to clipboard? (y/n)"
+                if ($copyToClipboard.ToLower() -eq 'y') {
+                    $selectedError.FullMessage | Set-Clipboard
+                    Write-Host "Error message copied to clipboard." -ForegroundColor Green
                 }
             }
 
-            # Ensure Outlook is running
-            Start-OutlookIfNeeded
+            # Use helper for export
+            Export-Results -Results $processedResults -BaseName "application_hang_results" -AU $AU
 
-            # Read and append default Outlook signature using dummy email method (embed images as base64)
-            $signatureHtml = ""
-            try {
-                # Create Outlook COM object
-                $outlook = New-Object -ComObject Outlook.Application
+            # Prompt to send email to dev team
+            $sendEmail = Read-Host "Send email to dev team about these errors? (y/n)"
+            if ($sendEmail.ToLower() -eq 'y') {
+                $description = Read-Host "Enter issue description"
 
-                # Create dummy email to capture default signature
-                $dummyMail = $outlook.CreateItem(0)  # 0 = olMailItem
-                $dummyMail.Display()  # Briefly shows window to insert signature
-                $signatureHtml = $dummyMail.HTMLBody
+                # Get hospital details from $HospitalInfo (assuming it's in scope; it's loaded earlier per AU)
+                if ($HospitalInfo) {
+                    $location = $HospitalInfo.'Operating Name'
+                    $contact = $HospitalInfo.'Hospital Manager'
+                    $phone = $HospitalInfo.'Phone'
+                } else {
+                    $location = "AU $AU"
+                    $contact = "N/A"
+                    $phone = "N/A"
+                }
 
-                # Embed images as base64 to avoid attachment issues
-                foreach ($attach in $dummyMail.Attachments) {
-                    try {
-                        $cid = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001E")
-                        $data = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x37010102")
-                        $base64 = [Convert]::ToBase64String($data)
-                        $ext = [System.IO.Path]::GetExtension($attach.FileName).ToLower()
-                        $mime = switch ($ext) {
-                            '.png' { 'image/png' }
-                            '.jpg' { 'image/jpeg' }
-                            '.jpeg' { 'image/jpeg' }
-                            '.gif' { 'image/gif' }
-                            default { 'image/png' }
-                        }
-                        $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
-                    } catch {
-                        # Ignore attachment processing errors
+                $subject = "AU$($AU.PadLeft(4, '0')) Application Hang Error"
+
+                # Build error details string
+                if ($selectedErrors) {
+                    $errorDetails = "Selected Error Details:`n"
+                    foreach ($selectedError in $selectedErrors) {
+                        $errorDetails += "Server: $($selectedError.PSComputerName)`n" +
+                            "Time Created: $($selectedError.TimeCreated)`n" +
+                            "Event ID: $($selectedError.EventID)`n" +
+                            "Record ID: $($selectedError.RecordID)`n" +
+                            "Machine Name: $($selectedError.MachineName)`n" +
+                            "Thread Identity: $($selectedError.ThreadIdentity)`n" +
+                            "Windows Identity: $($selectedError.WindowsIdentity)`n" +
+                            "Exception Type: $($selectedError.ExceptionType)`n" +
+                            "Message Error: $($selectedError.MessagError)`n" +
+                            "Full Message: $($selectedError.FullMessage)`n`n"
+                    }
+                } else {
+                    $errorDetails = "No specific error selected from the grids."
+                }
+
+                $recipientChoice = Read-Host "Send to (d)ev team and DBA, or (b) DBA only?"
+                switch ($recipientChoice.ToLower()) {
+                    'd' {
+                        $to = "WoofwareDevSupport@vca.com"
+                        $cc = "ITSQLDBA@vca.com"
+                    }
+                    'b' {
+                        $to = "ITSQLDBA@vca.com"
+                        $cc = $null
+                    }
+                    default {
+                        Write-Host "Invalid choice. Defaulting to Dev team and DBA." -ForegroundColor Yellow
+                        $to = "WoofwareDevSupport@vca.com"
+                        $cc = "ITSQLDBA@vca.com"
                     }
                 }
 
-                # Clean up dummy email
-                $dummyMail.Close(1)  # 1 = olDiscard
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
-                $dummyMail = $null
-            } catch {
-                Write-Host "Failed to capture Outlook signature: $($_.Exception.Message)" -ForegroundColor Yellow
-                Write-Log "Signature capture error: $($_.Exception.Message)"
-            }
+                # Ensure Outlook is running
+                Start-OutlookIfNeeded
 
-            # Build formatted HTML body
-            $bodyHtml = [string]::Format('<p><strong style="color: #CD5C5C;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: #CD5C5C;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: #CD5C5C;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
+                # Read and append default Outlook signature using dummy email method (embed images as base64)
+                $signatureHtml = ""
+                try {
+                    # Create Outlook COM object
+                    $outlook = New-Object -ComObject Outlook.Application
 
-            # Wrap in html/body if signature doesn't include it
-            $bodyHtml = "<html><body>$bodyHtml</body></html>"
+                    # Create dummy email to capture default signature
+                    $dummyMail = $outlook.CreateItem(0)  # 0 = olMailItem
+                    $dummyMail.Display()  # Briefly shows window to insert signature
+                    $signatureHtml = $dummyMail.HTMLBody
 
-            try {
-                # Create real email
-                $mail = $outlook.CreateItem(0)
+                    # Embed images as base64 to avoid attachment issues
+                    foreach ($attach in $dummyMail.Attachments) {
+                        try {
+                            $cid = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001E")
+                            $data = $attach.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x37010102")
+                            $base64 = [Convert]::ToBase64String($data)
+                            $ext = [System.IO.Path]::GetExtension($attach.FileName).ToLower()
+                            $mime = switch ($ext) {
+                                '.png' { 'image/png' }
+                                '.jpg' { 'image/jpeg' }
+                                '.jpeg' { 'image/jpeg' }
+                                '.gif' { 'image/gif' }
+                                default { 'image/png' }
+                            }
+                            $signatureHtml = $signatureHtml -replace "cid:$cid", ('data:' + $mime + ';base64,' + $base64)
+                        } catch {
+                            # Ignore attachment processing errors
+                        }
+                    }
 
-                # Set email properties
-                $mail.To = $to
-                if ($cc) { $mail.CC = $cc }
-                $mail.Subject = $subject
-                $mail.HTMLBody = $bodyHtml  # Set body with embedded signature images
-
-                $mail.Display()  # Opens as draft for review/edit/send
-                Write-Host "Email draft created in Outlook with embedded images." -ForegroundColor Green
-                Write-Log "Created email draft for Application Hang errors AU $AU"
-
-                # Clean up real email and outlook COM objects
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
-                $mail = $null
-                [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
-                $outlook = $null
-                [System.GC]::Collect()
-                [System.GC]::WaitForPendingFinalizers()
-            } catch {
-                Write-Host "Failed to create email: $($_.Exception.Message). Ensure Outlook is installed." -ForegroundColor Red
-                Write-Log "Email creation error: $($_.Exception.Message)"
-            } finally {
-                # Clean up: Close and release COM objects (only if not already released)
-                if ($dummyMail) {
+                    # Clean up dummy email
                     $dummyMail.Close(1)  # 1 = olDiscard
                     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
                     $dummyMail = $null
+                } catch {
+                    Write-Host "Failed to capture Outlook signature: $($_.Exception.Message)" -ForegroundColor Yellow
+                    Write-Log "Signature capture error: $($_.Exception.Message)"
                 }
-                if ($mail) {
+
+                # Build formatted HTML body
+                $bodyHtml = [string]::Format('<p><strong style="color: #CD5C5C;">Team,</strong></p><p><strong>Details:</strong></p><p><span style="font-weight: bold; color: #CD5C5C;">Location:</span> <span style="color: #4169e1;">{0}</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Site Contact Name:</span> <span style="color: #4169e1;">{1} ({2})</span></p><p><span style="font-weight: bold; color: #CD5C5C;">Issue:</span> <span style="color: #4169e1;">{3}</span></p><p><strong style="color: #CD5C5C;">Error Details:</strong></p><pre>{4}</pre><br><br>{5}', $location, $contact, $phone, $description, $errorDetails, $signatureHtml)
+
+                # Wrap in html/body if signature doesn't include it
+                $bodyHtml = "<html><body>$bodyHtml</body></html>"
+
+                try {
+                    # Create real email
+                    $mail = $outlook.CreateItem(0)
+
+                    # Set email properties
+                    $mail.To = $to
+                    if ($cc) { $mail.CC = $cc }
+                    $mail.Subject = $subject
+                    $mail.HTMLBody = $bodyHtml  # Set body with embedded signature images
+
+                    $mail.Display()  # Opens as draft for review/edit/send
+                    Write-Host "Email draft created in Outlook with embedded images." -ForegroundColor Green
+                    Write-Log "Created email draft for Application Hang errors AU $AU"
+
+                    # Clean up real email and outlook COM objects
                     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
                     $mail = $null
-                }
-                if ($outlook) {
                     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
                     $outlook = $null
+                    [System.GC]::Collect()
+                    [System.GC]::WaitForPendingFinalizers()
+                } catch {
+                    Write-Host "Failed to create email: $($_.Exception.Message). Ensure Outlook is installed." -ForegroundColor Red
+                    Write-Log "Email creation error: $($_.Exception.Message)"
+                } finally {
+                    # Clean up: Close and release COM objects (only if not already released)
+                    if ($dummyMail) {
+                        $dummyMail.Close(1)  # 1 = olDiscard
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($dummyMail) | Out-Null
+                        $dummyMail = $null
+                    }
+                    if ($mail) {
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($mail) | Out-Null
+                        $mail = $null
+                    }
+                    if ($outlook) {
+                        [System.Runtime.Interopservices.Marshal]::ReleaseComObject($outlook) | Out-Null
+                        $outlook = $null
+                    }
+                    [System.GC]::Collect()
+                    [System.GC]::WaitForPendingFinalizers()
                 }
-                [System.GC]::Collect()
-                [System.GC]::WaitForPendingFinalizers()
             }
+        } else {
+            Write-Host "No errors selected. Returning to menu." -ForegroundColor Yellow
         }
     }
 
@@ -1908,17 +1962,7 @@ try {
                 Write-Log "DHCP error on $Server : $($_.Exception.Message)"
                 $results += "Error with DHCP on $Server : $($_.Exception.Message)"
                 if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-                    Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-                    $updateCred = Read-Host
-                    if ($updateCred.ToLower() -eq 'y') {
-                        $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                        if ($newCred) {
-                            $newCred | Export-Clixml -Path "$PSScriptRoot\Private\vcaadmin.xml" -Force
-                            Write-Host "Admin credentials updated." -ForegroundColor Green
-                            Write-Log "Admin credentials updated due to DHCP error in Add DHCP Reservation"
-                            $Credential = $newCred
-                        }
-                    }
+                    Write-Host "This appears to be a credential issue. Please update the admin credentials via menu option 11." -ForegroundColor Yellow
                 }
             }
         }
@@ -2372,17 +2416,7 @@ try {
         catch {
             Write-Warning $_.Exception.Message
             if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-                Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-                $updateCred = Read-Host
-                if ($updateCred.ToLower() -eq 'y') {
-                    $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                    if ($newCred) {
-                        $newCred | Export-Clixml -Path "$PSScriptRoot\Private\vcaadmin.xml" -Force
-                        Write-Host "Admin credentials updated." -ForegroundColor Green
-                        Write-Log "Admin credentials updated due to DHCP error in Angry IP Scanner"
-                        $Credential = $newCred
-                    }
-                }
+                Write-Host "This appears to be a credential issue. Please update the admin credentials via menu option 11." -ForegroundColor Yellow
             }
         }
     }

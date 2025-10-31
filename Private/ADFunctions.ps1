@@ -7,20 +7,15 @@ function ADUserManagement {
 
     Write-ConditionalLog "Starting AD User Management for AU $AU"
 
-    # Load admin credentials for privileged operations (unlock/reset password)
+    # Load admin credentials securely (prompt/save if missing or invalid)
     $adminCredPath = "$global:ScriptRoot\Private\vcaadmin.xml"
-    $AdminCredential = $null
-    if (Test-Path $adminCredPath) {
-        try {
-            $AdminCredential = Import-Clixml -Path $adminCredPath
-            Write-ConditionalLog "Admin credentials loaded for AD user management"
-        } catch {
-            Write-Host "Failed to load admin credentials from $adminCredPath : $($_.Exception.Message). Privileged operations may fail." -ForegroundColor Red
-            Write-ConditionalLog "Failed to load admin credentials: $($_.Exception.Message)"
-        }
+    $AdminCredential = Get-AdminSecureCredential -CredPath $adminCredPath
+
+    if (-not $AdminCredential) {
+        Write-Host "No valid admin credentials available. Privileged operations may fail." -ForegroundColor Red
+        Write-ConditionalLog "No valid admin credentials for AD user management"
     } else {
-        Write-Host "Admin credentials file not found at $adminCredPath. Privileged operations may fail." -ForegroundColor Yellow
-        Write-ConditionalLog "Admin credentials file missing"
+        Write-ConditionalLog "Admin credentials loaded/validated for AD user management"
     }
 
     $groupName = "H" + $AU.PadLeft(4, '0')  # e.g., 'H4048' for AU 4048
@@ -60,17 +55,7 @@ function ADUserManagement {
                             Write-Host "Error resetting password: $($_.Exception.Message)" -ForegroundColor Red
                             Write-ConditionalLog "Password reset error for $($selectedUser.SamAccountName): $($_.Exception.Message)"
                             if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-                                Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-                                $updateCred = Read-Host
-                                if ($updateCred.ToLower() -eq 'y') {
-                                    $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                                    if ($newCred) {
-                                        $newCred | Export-Clixml -Path "$global:ScriptRoot\Private\vcaadmin.xml" -Force
-                                        Write-Host "Admin credentials updated." -ForegroundColor Green
-                                        Write-ConditionalLog "Admin credentials updated due to AD user management error"
-                                        $AdminCredential = $newCred
-                                    }
-                                }
+                                Write-Host "This appears to be a credential issue. Please update the admin credentials via menu option 11." -ForegroundColor Yellow
                             }
                         }
                     } else {
@@ -90,17 +75,7 @@ function ADUserManagement {
                         Write-Host "Error unlocking account: $($_.Exception.Message)" -ForegroundColor Red
                         Write-ConditionalLog "Account unlock error for $($selectedUser.SamAccountName): $($_.Exception.Message)"
                         if ($_.Exception.Message -match "access denied|credential|authentication|logon failure|unauthorized|permission") {
-                            Write-Host "This appears to be a credential issue. Would you like to update the admin credentials? (y/n)" -ForegroundColor Yellow
-                            $updateCred = Read-Host
-                            if ($updateCred.ToLower() -eq 'y') {
-                                $newCred = Get-Credential -Message "Enter new admin credentials (e.g., vcaantech\adminuser)"
-                                if ($newCred) {
-                                    $newCred | Export-Clixml -Path "$global:ScriptRoot\Private\vcaadmin.xml" -Force
-                                    Write-Host "Admin credentials updated." -ForegroundColor Green
-                                    Write-ConditionalLog "Admin credentials updated due to AD user management error"
-                                    $AdminCredential = $newCred
-                                }
-                            }
+                            Write-Host "This appears to be a credential issue. Please update the admin credentials via menu option 11." -ForegroundColor Yellow
                         }
                     }
                 }
